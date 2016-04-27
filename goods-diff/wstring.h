@@ -197,8 +197,9 @@ class wstring_t {
     wstring_t& operator=(wstring_t const& str) {
 		if (&str == this)
 			return *this; 
-        destroy();		
-		if (len = str.len)
+        destroy();	
+	len = str.len;
+		if (len != 0)
 		{
 			chars = new wchar_t[len];
 			memcpy(chars, str.chars, len*sizeof(wchar_t));
@@ -208,7 +209,8 @@ class wstring_t {
 
     wstring_t& operator=(wchar_t const* str) {
         destroy();
-		if (len = (str == NULL) ? 0 : int(wcslen(str)))
+ 	len = (str == NULL) ? 0 : int(wcslen(str));
+	if (len != 0) 
 		{
 			chars = new wchar_t[++len];
 			wcscpy(chars, str);
@@ -218,7 +220,8 @@ class wstring_t {
 
     wstring_t& operator=(char const* str) {
         destroy();
-		if (len = (str == NULL) ? 0 : int(strlen(str)))
+	len = (str == NULL) ? 0 : int(strlen(str));	
+		if (len != 0)
 		{
 			len = int(mbstowcs(NULL, str, len) + 1);
 			chars = new wchar_t[len];
@@ -256,7 +259,8 @@ class wstring_t {
 	wstring_t(wstring_t const& str) 
 		: chars(NULL)
 	{
-		if (len = str.len)
+	    len = str.len;
+	    if (len != 0)
 		{
 			chars = new wchar_t[len];
 			memcpy(chars, str.chars, len*sizeof(wchar_t));
@@ -265,7 +269,8 @@ class wstring_t {
     wstring_t(wchar_t const* str) 
 		: chars(NULL)
 	{
-		if (len = (str == NULL) ? 0 : int(wcslen(str)))
+	    len = (str == NULL) ? 0 : int(wcslen(str));
+		if (len != 0)
 		{
 			chars = new wchar_t[++len];
 			wcscpy(chars, str);
@@ -274,7 +279,8 @@ class wstring_t {
     wstring_t(char const* str) 
 		: chars(NULL)
 	{
-		if (len = (str == NULL) ? 0 : int(strlen(str)))
+	    len = (str == NULL) ? 0 : int(strlen(str));
+		if (len != 0)
 		{
 			len = int(mbstowcs(NULL, str, len) + 1);
 			chars = new wchar_t[len];
@@ -505,7 +511,7 @@ class wstring_t {
         return chars;
     }
 
-	wchar_t* getSafeWideChar() const {
+	wchar_t const* getSafeWideChar() const {
 		return len == 0 ? L"" : chars; 
 	}
     
