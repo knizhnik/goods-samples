@@ -45,18 +45,18 @@ void CPackageList::remove(ref<set_member> mbr)
 void CPackageList::InsertInIndexes(ref<CPackage> const& package)
 {
 	const auto code = package->GetCode();
-	index::InsertInIndex(m_IndexByCode, package, code);
+	Index::InsertInIndex(m_IndexByCode, package, code);
 }
 
 void CPackageList::RemoveFromIndexes(ref<CPackage> const& package)
 {
 	const auto code = package->GetCode();
-	index::RemoveFromIndex(m_IndexByCode, code);
+	Index::RemoveFromIndex(m_IndexByCode, code);
 }
 
 ref<CPackage> CPackageList::FindByCode(std::wstring const& code) const
 {
-	auto found_member = index::FindMember(m_IndexByCode, code);
+	auto found_member = Index::FindMember(m_IndexByCode, code);
 	if (found_member.is_nil())
 	{
 		return nullptr;

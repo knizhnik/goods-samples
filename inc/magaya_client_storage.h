@@ -1,7 +1,7 @@
 #pragma once
 
 #include "client.h"
-#include "Storage.h"
+#include "storage.h"
 
 class magaya_client_storage : public dbs_client_storage
 {

@@ -1,9 +1,10 @@
 ////////////////////////////////////////////////////////////////////////////
 // Implementation file Storage.cpp
 
-#include "StdAfx.h"
-
+#include "stdafx.h"
+#ifdef _WIN32
 #include <atlutil.h>
+#endif
 #include "Storage.h"
 #include "DBCmdEx.h"
 //#include "resource.h"

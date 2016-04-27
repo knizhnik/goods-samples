@@ -27,7 +27,7 @@ void db::warehouse_receipt::AddItem(w_ref<CWarehouseReceipt> w_warehouse_receipt
 {
 	w_ref<set_owner> w_items =  w_warehouse_receipt->GetItems();
 
-	auto whr_insert_member = index::CreateMember(item);
+	auto whr_insert_member = Index::CreateMember(item);
 	w_items->insert(whr_insert_member);
 }
 
@@ -35,7 +35,7 @@ void db::warehouse_receipt::Save(ref<CWarehouseReceipt> const& warehouse_receipt
 {
 	w_ref<CWarehouseReceiptList> w_list = GetList();
 
-	auto insert_member = index::CreateMember(warehouse_receipt);
+	auto insert_member = Index::CreateMember(warehouse_receipt);
 	w_list->insert(insert_member);
 
 	auto items = warehouse_receipt->GetItems();

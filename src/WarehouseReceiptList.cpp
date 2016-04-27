@@ -51,8 +51,8 @@ void CWarehouseReceiptList::InsertInIndexes(ref<CWarehouseReceipt> const& wareho
 	const auto number = warehouse_receipt->GetNumber();
 	const auto date = warehouse_receipt->GetDate();
 
-	index::InsertInIndex(m_IndexByNumber, warehouse_receipt, number);
-	index::InsertInIndex(m_IndexByDate, warehouse_receipt, date);
+	Index::InsertInIndex(m_IndexByNumber, warehouse_receipt, number);
+	Index::InsertInIndex(m_IndexByDate, warehouse_receipt, date);
 }
 
 void CWarehouseReceiptList::RemoveFromIndexes(ref<CWarehouseReceipt> const& warehouse_receipt)
@@ -60,11 +60,11 @@ void CWarehouseReceiptList::RemoveFromIndexes(ref<CWarehouseReceipt> const& ware
 	const auto number = warehouse_receipt->GetNumber();
 	const auto date = warehouse_receipt->GetDate();
 
-	index::RemoveFromIndex(m_IndexByNumber, number);
-	index::RemoveFromIndex(m_IndexByDate, date);
+	Index::RemoveFromIndex(m_IndexByNumber, number);
+	Index::RemoveFromIndex(m_IndexByDate, date);
 }
 
 ref<set_member> CWarehouseReceiptList::FindByNumber(std::wstring const& number) const
 {
-	return index::FindMember(m_IndexByNumber, number);
+	return Index::FindMember(m_IndexByNumber, number);
 }

@@ -26,7 +26,21 @@
 #include <tchar.h>
 #include "ObjBase.h"
 #else
+#include <unistd.h>
+#define GetCurrentProcessId getpid
+#define sprintf_s sprintf
+#define strcpy_s(dst, dst_size, src)  strcpy(dst, src)
+#define strncpy_s(dst, dst_size, src, src_size)  strncpy(dst, src, src_size)
+#define _stricmp(s, p) strcasecmp(s, p) 
+#define MAKELONG(hi, low) (((nat8)(hi)<<32) | (low))
+#define TRUE true
+#define FALSE false
 typedef wchar_t _TCHAR;
+typedef bool BOOL;
+typedef unsigned char BYTE;
+typedef unsigned UINT;
+typedef unsigned DWORD;
+#define MAX_PATH 1024
 #endif
 
 // -- Goods Files and Directives

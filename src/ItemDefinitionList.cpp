@@ -51,8 +51,8 @@ void CItemDefinitionList::InsertInIndexes(ref<CItemDefinition> const& item_defin
 	const auto code = item_definition->GetCode();
 	const auto description = item_definition->GetDescription();
 
-	index::InsertInIndex(m_IndexByCode, item_definition, code);
-	index::InsertInIndex(m_IndexByDescription, item_definition, description);
+	Index::InsertInIndex(m_IndexByCode, item_definition, code);
+	Index::InsertInIndex(m_IndexByDescription, item_definition, description);
 }
 
 void CItemDefinitionList::RemoveFromIndexes(ref<CItemDefinition> const& item_definition)
@@ -60,16 +60,16 @@ void CItemDefinitionList::RemoveFromIndexes(ref<CItemDefinition> const& item_def
 	const auto code = item_definition->GetCode();
 	const auto description = item_definition->GetDescription();
 
-	index::RemoveFromIndex(m_IndexByCode, code);
-	index::RemoveFromIndex(m_IndexByDescription, description);
+	Index::RemoveFromIndex(m_IndexByCode, code);
+	Index::RemoveFromIndex(m_IndexByDescription, description);
 }
 
 ref<set_member> CItemDefinitionList::FindByCode(std::wstring const code) const
 {
-	return index::FindMember(m_IndexByCode, code);
+	return Index::FindMember(m_IndexByCode, code);
 }
 
 ref<set_member> CItemDefinitionList::FindByDescription(std::wstring const description) const
 {
-	return index::FindMember(m_IndexByDescription, description);
+	return Index::FindMember(m_IndexByDescription, description);
 }

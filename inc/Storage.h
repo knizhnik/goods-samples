@@ -5,7 +5,7 @@
 #define STORAGE_H
 
 #include "ClientStorage.h"
-#include "dbcmdex.h"
+#include "DBCmdEx.h"
 
 #include <string>
 
@@ -17,12 +17,16 @@ class CDBAttacher
 {
 public:
 	CDBAttacher(database& db) : _db(db) {
+#ifdef _WIN32
 		CoInitialize(NULL);
+#endif
 		_db.attach();
 	}
 	~CDBAttacher(void) {
 		_db.detach();
+#ifdef _WIN32
 		CoUninitialize();
+#endif
 	}
 private:
 	database& _db;
@@ -88,8 +92,6 @@ public:
 	bool ValidateConnectionString(std::string const& connection_string) const;
  
 	
-	BOOL WaitForBackupIsFinished(HANDLE m_hEndEvent) const;
-
 	UINT GetLoginRefusedReasson() const {
 		return m_LoginRefusedReason;
 	}

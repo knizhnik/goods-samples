@@ -28,7 +28,7 @@ void db::package::Save(ref<CPackage> const& package)
 {
 	w_ref<CPackageList> package_list = GetList();
 
-	auto insert_member = index::CreateMember(package);
+	auto insert_member = Index::CreateMember(package);
 	package_list->insert(insert_member);
 }
 

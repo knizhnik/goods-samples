@@ -3,7 +3,9 @@
 
 #include "stdafx.h"
 
+#ifdef _WIN32
 #include <atlutil.h>
+#endif
 #include "ClientStorage.h"
 #include "mop.h"
 #include "DBCmdEx.h"
@@ -49,8 +51,12 @@ boolean CClientStorage::open(const char* server_connection_name, const char* log
 
 	char host_name[MAX_LOGIN_NAME];
 	char user_name[MAX_LOGIN_NAME];
+#ifdef _WIN32
 	DWORD nSize = MAX_LOGIN_NAME;
 	::GetUserNameA(user_name, &nSize);
+#else
+	strcpy(user_name, getenv("USER"));
+#endif
 	gethostname(host_name, MAX_LOGIN_NAME);
 
 	char login_name[MAX_LOGIN_NAME];
@@ -71,9 +77,9 @@ boolean CClientStorage::open(const char* server_connection_name, const char* log
 	}
 	
 	const size_t snd_buf_size = sizeof(dbs_request) + login_name_len;
-	snd_buf.put(snd_buf_size);
+	tmp_buf.put(snd_buf_size);
 
-    dbs_request* login_req = (dbs_request*)&snd_buf;
+    dbs_request* login_req = (dbs_request*)&tmp_buf;
     login_req->cmd = dbs_request::cmd_login;
     login_req->login.name_len = login_name_len;
 	strcpy_s((char*)(login_req+1), snd_buf_size, login_name);

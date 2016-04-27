@@ -6,7 +6,7 @@
 #include "Package.h"
 #include "RootDataLayer.h"
 #include "WarehouseItemDataLayer.h"
-#include "WarehouseItemlist.h"
+#include "WarehouseItemList.h"
 
 ref<CWarehouseItemList> db::wh_item::GetList()
 {
@@ -46,7 +46,7 @@ void db::wh_item::Save(ref<CWarehouseItem> const& warehouse_item)
 {
 	w_ref<CWarehouseItemList> list = GetList();
 
-	auto insert_member = index::CreateMember(warehouse_item);
+	auto insert_member = Index::CreateMember(warehouse_item);
 	list->insert(insert_member);
 }
 

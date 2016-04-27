@@ -37,23 +37,14 @@ public:
 		member = member->next;
 		return *this;
 	}
-	goods_container_const_iterator operator ++ (int) 
-	{
-		goods_container_iterator tmp(*this);
-		++*this;
-		return tmp;
-	}
+	goods_container_const_iterator operator ++ (int);
+
 	goods_container_const_iterator operator -- () 
 	{		
 		member = member->prev;
 		return *this;
 	}
-	goods_container_const_iterator operator--(int) 
-	{
-		goods_container_iterator tmp(*this);
-		--*this;
-		return tmp;
-	}
+	goods_container_const_iterator operator--(int); 
 
 	operator member_type() const
 	{
@@ -113,12 +104,13 @@ public:
 		member = member->next;
 		return *this;
 	}
-	goods_container_iterator operator ++ (int) 
+	goods_container_iterator operator ++ (int)
 	{
 		goods_container_iterator tmp(*this);
-		++*this;
+		--*this;
 		return tmp;
 	}
+
 	goods_container_iterator operator -- () 
 	{		
 		member = member->prev;
@@ -158,6 +150,21 @@ bool operator != (goods_container_iterator<Owner1> const& lhs, goods_container_i
 	return lhs.member != rhs.member;
 }
 
+template<class Owner>
+inline goods_container_const_iterator<Owner> goods_container_const_iterator<Owner>::operator ++ (int) 
+{
+	goods_container_iterator<Owner> tmp(*this);
+	++*this;
+	return tmp;
+}
+
+template<class Owner>
+inline goods_container_const_iterator<Owner> goods_container_const_iterator<Owner>::operator -- (int) 
+{
+	goods_container_iterator<Owner> tmp(*this);
+	--*this;
+	return tmp;
+}
 
 template<typename Container>
 class goods_set_owner_traits;

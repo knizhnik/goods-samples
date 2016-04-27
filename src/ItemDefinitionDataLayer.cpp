@@ -38,7 +38,7 @@ void db::item_def::Save(ref<CItemDefinition> const& item_def)
 {
 	w_ref<CItemDefinitionList> list = GetList();
 	
-	auto insert_member = index::CreateMember(item_def);
+	auto insert_member = Index::CreateMember(item_def);
 	list->insert(insert_member);
 }
 

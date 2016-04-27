@@ -3,7 +3,7 @@
 
 #include <algorithm>
 
-namespace index
+namespace Index
 {
 	template<typename KeyType>
 	struct IndexKeyTraits;

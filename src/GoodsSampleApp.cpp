@@ -5,7 +5,7 @@
 #include "GoodsSampleApp.h"
 #include "magaya_client_storage.h"
 #include "RootDataLayer.h"
-#include "storage.h"
+#include "Storage.h"
 
 #include <locale.h>
 #include <iostream>

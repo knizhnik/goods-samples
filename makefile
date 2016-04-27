@@ -1,19 +1,19 @@
 DEBUG?=1
 
 CC = g++ -std=c++11
-SYSDEF = -pthread
-ifeq ($(DEBUG), "1")
+SYSDEFS = -pthread
+ifeq ($(DEBUG), 1)
 OPTLEVEL = 0
 else
 OPTLEVEL = 3
 endif
-CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -Iinc -Wall
+CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc -Wall
 LD = g++
-LDFLAGS = $(SYSDEFS) -g
+LDFLAGS = $(SYSDEFS) -g -lz
 
-OBJS = GoodsSample.o Dimensions.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
+OBJS = GoodsSample.o ClientStorage.o DatabaseRoot.o Dimensions.o DimensionDataLayer.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
 
-INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/DimensionDataLayer.h inc/Dimensions.h inc/FillDatabase.h inc/goods_container.h inc/GoodsSampleApp.h inc/GoodsTLCache.h inc/IndexHelper.h inc/ItemDefinitionDataLayer.h inc/ItemDefinition.h inc/ItemDefinitionList.h inc/magaya_client_storage.h inc/PackageDataLayer.h inc/Package.h inc/PackageList.h inc/RootDataLayer.h inc/storage.h inc/WarehouseItemDataLayer.h inc/WarehouseItem.h inc/WarehouseItemList.h inc/WarehouseReceiptDataLayer.h inc/WarehouseReceipt.h inc/WarehouseReceiptList.h 
+INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/DimensionDataLayer.h inc/Dimensions.h inc/FillDatabase.h inc/goods_container.h inc/GoodsSampleApp.h inc/GoodsTLCache.h inc/IndexHelper.h inc/ItemDefinitionDataLayer.h inc/ItemDefinition.h inc/ItemDefinitionList.h inc/magaya_client_storage.h inc/PackageDataLayer.h inc/Package.h inc/PackageList.h inc/RootDataLayer.h inc/Storage.h inc/WarehouseItemDataLayer.h inc/WarehouseItem.h inc/WarehouseItemList.h inc/WarehouseReceiptDataLayer.h inc/WarehouseReceipt.h inc/WarehouseReceiptList.h 
 
 
 all: GoodsSample
@@ -24,8 +24,17 @@ GoodsSample: $(OBJS)
 GoodsSample.o: GoodsSample.cpp $(INC)
 	$(CC) $(CCFLAGS) GoodsSample.cpp 
 
+DatabaseRoot.o: src/DatabaseRoot.cpp $(INC)
+	$(CC) $(CCFLAGS) src/DatabaseRoot.cpp
+
+ClientStorage.o: src/ClientStorage.cpp $(INC)
+	$(CC) $(CCFLAGS) src/ClientStorage.cpp
+
 Dimensions.o: src/Dimensions.cpp $(INC)
 	$(CC) $(CCFLAGS) src/Dimensions.cpp
+
+DimensionDataLayer.o: src/DimensionDataLayer.cpp $(INC)
+	$(CC) $(CCFLAGS) src/DimensionDataLayer.cpp
 
 FillDatabase.o: src/FillDatabase.cpp $(INC)
 	$(CC) $(CCFLAGS) src/FillDatabase.cpp
@@ -42,7 +51,7 @@ ItemDefinitionDataLayer.o: src/ItemDefinitionDataLayer.cpp $(INC)
 ItemDefinitionList.o: src/ItemDefinitionList.cpp $(INC)
 	$(CC) $(CCFLAGS) src/ItemDefinitionList.cpp
 
-magaya_client_storage: magaya_client_storage.cpp $(INC)
+magaya_client_storage.o: src/magaya_client_storage.cpp $(INC)
 	$(CC) $(CCFLAGS) src/magaya_client_storage.cpp
 
 Package.o: src/Package.cpp $(INC)
