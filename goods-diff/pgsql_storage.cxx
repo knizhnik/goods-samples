@@ -46,6 +46,10 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con->prepare("get_class", "select desc from classes where oid=?"); 
 	con->prepare("put_class", "insert into classes (desc) values ($1)"); 
 	con->prepare("change_class", "update classes set desc=$1 where oid=$2"); 
+	con->prepare("equal", "select * from set_member where key=$1");
+	con->prepare("greater_or_equal", "select * from set_member where key>=$1");
+	con->prepare("remove_set", "delete from set_member where owner=$1");
+
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
 			vector<string> columns;
@@ -327,14 +331,14 @@ static opid_t load_query_result(result& rs, dnm_buffer& buf)
 {
 	opid_t next_mbr = 0;
 	for (auto i = rs.begin(); i != rs.end(); ++i) {
-		tuple obj_records = *i;
+		tuple obj_record = *i;
 		opid_t obj_opid = obj_record["opid"].as(opid_t());
 		class_descriptor* obj_desc = lookup_class(GET_CID(obj_opid));
 		size_t mbr_buf_offs = buf.size();
-		unpack_object("mbr_", &set_member::self_class, buf, obj_records);
+		unpack_object("mbr_", &set_member::self_class, buf, obj_record);
 		stid_t next_sid;
 		unpackref(next_sid, next_mbr, &buf + mbr_buf_offs + sizeof(dbs_object_header));
-		unpack_object("", obj_desc, buf, obj_records); 
+		unpack_object("", obj_desc, buf, obj_record); 
 	}
 	return next_mbr;
 }
@@ -573,6 +577,8 @@ boolean pgsql_storage::wait_global_transaction_completion()
 }
 
 void pgsql_storage::send_messages() {}
+void pgsql_storage::send_message(int message) {}
+void pgsql_storage::push_message(int message) {}
 	
 nat8 pgsql_storage::get_used_size()
 {
@@ -589,3 +595,104 @@ boolean pgsql_storage::start_gc()
 void pgsql_storage::add_user(char const* login, char const* password){}
 
 void pgsql_storage::del_user(char const* login){}
+
+void pgsql_storage::remove_set(opid_t owner)
+{
+	txn->prepared("remove_set")(owner);
+}
+
+ref<set_member> pgsql_storage::find(char const* op, pstring key)
+{
+	result rs = txn->prepared(op)(key);
+	if (rs.empty()) { 
+		return NULL;
+	}
+	tuple record = rs[0];
+	opid_t opid = record[0].as(opid_t());
+	hnd_t hnd = object_handle::create_persistent_reference(this, opid, 0);
+	if (!IS_VALID_OBJECT(hnd->obj)) {
+		dnm_buffer buf;
+		class_descriptor* desc = &set_member::self_desc;
+		unpack_object("", desc, buf, record); 
+		dbs_object_header* hdr = (object_header*)buf;
+		set_member::self_desc.unpack(hdr, hnd, lof_auto);
+	}
+	return hnd->obj;
+}
+
+
+inline pgsql_storage get_storage(object* obj) 
+{
+	return (pgsql_storage*)obj->hnd->storage->storage;
+}
+
+ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
+{
+	pgsql_storage* pg = get_storage(this);
+	return pg->find("equal", string(str, len));
+}
+
+ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
+{
+	pgsql_storage* pg = get_storage(this);
+	return pg->find("greater_or_equal", string(str, len));
+}
+
+
+ref<set_member> pgsql_index::find(const char* str) const
+{
+	pgsql_storage* pg = get_storage(this);
+	return pg->find("equal", string(str));
+}
+
+ref<set_member> pgsql_index::find(skey_t key) const
+{
+	assert(false);
+}
+
+ref<set_member> pgsql_index::findGE(skey_t key) const
+{
+	assert(false);
+}
+
+ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
+{
+	pgsql_storage* pg = get_storage(this);
+	return pg->find("greater_or_equal", string(str, len));
+}
+	
+ref<set_member> pgsql_index::findGE(const char* str) const
+{
+	pgsql_storage* pg = get_storage(this);
+	return pg->find("greater_or_equal", string(str));
+}
+
+
+void pgsql_index::insert(ref<set_member> mbr)
+{
+	ref<set_member> next = findGE(mbr->key);
+	if (next.is_nil()) { 
+		put_last(mbr); 
+	} else {
+		put_before(next, mbr);
+	}
+}
+
+void pgsql_index::remove(ref<set_member> mbr)
+{
+	ref<set_member> next = find(mbr->key);
+	if (!next.is_nil()) { 
+		set_owner::remove(mbr);
+	}
+		
+}
+
+void pgsql_index::clear()
+{
+	pgsql_storage* pg = get_storage(this);
+	pg->remove_set(opid);	
+    last = NULL;
+    first = NULL;
+	n_members = 0;
+	obj = NULL;
+}

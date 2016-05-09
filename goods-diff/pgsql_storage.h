@@ -139,11 +139,16 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
     virtual void    add_user(char const* login, char const* password);
     virtual void    del_user(char const* login);
+
+	ref<set_member> find(char const* op, string key);
+	void remove_set(opid_t opid);
 };
 
 
 class GOODS_DLL_EXPORT pgsql_index : public b_tree
 {
+		hnd->storage->
+  public:
     virtual ref<set_member> find(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> find(const char* str) const;
     virtual ref<set_member> find(skey_t key) const;
