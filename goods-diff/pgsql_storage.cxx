@@ -46,10 +46,17 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con->prepare("get_class", "select desc from classes where oid=?"); 
 	con->prepare("put_class", "insert into classes (desc) values ($1)"); 
 	con->prepare("change_class", "update classes set desc=$1 where oid=$2"); 
-	con->prepare("equal", "select * from set_member where key=$1");
-	con->prepare("greater_or_equal", "select * from set_member where key>=$1");
-	con->prepare("remove_set", "delete from set_member where owner=$1");
+	con->prepare("index_equal", "select * from set_member where owner=$1 and key=$2");
+	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2");
+	con->prepare("index_drop", "delete from set_member where owner=$1");
 
+	con->prepare("hash_put", "insert into hash_table (owner,name,opid,sid) values ($1,$2,$3,$4)");
+	con->prepare("hash_get", "select opid,sid from hash_table where owner=$1 and name=$2");
+	con->prepare("hash_delall", "delete from hash_table where owner=$1 and name=$2");
+	con->prepare("hash_del", "delete from hash_table where owner=$1 and name=$2 and opid=$3 and sid=$4");
+	con->prepare("hash_drop", "delete from hash_table where owner=$1");
+	con->prepare("hash_size", "select count(*) from hash_table where owner=$1");
+				 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
 			vector<string> columns;
@@ -389,7 +396,7 @@ void pgsql_storage::begin_transaction(dnm_buffer& buf)
 }
 
 
-static size_t store_struct(field_descriptor* first, prepare::invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
+static size_t store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
 {
 	field_descriptor* field = first;
 	
@@ -552,7 +559,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		dbs_object_header* hdr = (dbs_object_header*)&buf;
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(hdr->get_cpid());
-		prepare::invocation stmt = txn->preapred(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
+		invocation stmt = txn->preapred(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
 		stmt(hdr->get_opid());
 		size_t left = store_struct(desc->fields, stmt, (char*)(hdr+1), hdr->get_size());
 		assert(left == 0);
@@ -596,14 +603,19 @@ void pgsql_storage::add_user(char const* login, char const* password){}
 
 void pgsql_storage::del_user(char const* login){}
 
-void pgsql_storage::remove_set(opid_t owner)
+inline pgsql_storage get_storage(object* obj) 
 {
-	txn->prepared("remove_set")(owner);
+	return (pgsql_storage*)obj->hnd->storage->storage;
 }
 
-ref<set_member> pgsql_storage::find(char const* op, pstring key)
+invocation pgsql_storage::statement(char const* name)
 {
-	result rs = txn->prepared(op)(key);
+	return txn->prepared(name);
+}
+
+ref<set_member> pgsql_storage::index_find(opid_t index, char const* op, pstring key)
+{
+	result rs = txn->prepared(op)(index)(key);
 	if (rs.empty()) { 
 		return NULL;
 	}
@@ -621,28 +633,34 @@ ref<set_member> pgsql_storage::find(char const* op, pstring key)
 }
 
 
-inline pgsql_storage get_storage(object* obj) 
+//
+// Emulation of GOODS B_tree
+// 
+
+REGISTER(pgsql_index, B_tree, pessimistic_repeatable_read_scheme);
+
+field_descriptor& pgsql_index::describe_components()
 {
-	return (pgsql_storage*)obj->hnd->storage->storage;
+    return NO_FIELDS;
 }
 
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find("equal", string(str, len));
+	return pg->index_find(opid, "index_equal", string(str, len));
 }
 
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find("greater_or_equal", string(str, len));
+	return pg->index_find(opid, "index_greater_or_equal", string(str, len));
 }
 
 
 ref<set_member> pgsql_index::find(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find("equal", string(str));
+	return pg->find(opid, "index_equal", string(str));
 }
 
 ref<set_member> pgsql_index::find(skey_t key) const
@@ -658,13 +676,13 @@ ref<set_member> pgsql_index::findGE(skey_t key) const
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find("greater_or_equal", string(str, len));
+	return pg->index_find(opid, "greater_or_equal", string(str, len));
 }
 	
 ref<set_member> pgsql_index::findGE(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find("greater_or_equal", string(str));
+	return pg->index_find(opid, "greater_or_equal", string(str));
 }
 
 
@@ -690,9 +708,78 @@ void pgsql_index::remove(ref<set_member> mbr)
 void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
-	pg->remove_set(opid);	
+	pg->statement("index_drop")(opid).exec();	
     last = NULL;
     first = NULL;
 	n_members = 0;
 	obj = NULL;
+}
+
+//
+// Emulation of GOODS hash_table 
+//
+
+REGISTER(pgsql_dictionary, dictionary, pessimistic_repeatable_read_scheme);
+
+field_descriptor& pgsql_dictionary::describe_components()
+{
+    return NO_FIELDS;
+}
+
+void pgsql_dictionary::put(const char* name, anyref obj)
+{
+	pgsql_storage* pg = get_storage(this);
+	hnd_t obj_hnd = obj->get_handle();
+	if (obj_hnd->opid == 0) { 
+		object::make_persistent(obj_hnd, hnd->storage);
+	}
+	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid)(obj_hnd->storage->id).exec();	
+}
+
+anyref pgsql_dictionary::get(const char* name) const
+{
+	pgsql_storage* pg = get_storage(this);
+	result rs = pg->statement("hash_get")(hnd->opid)(name).exec();
+	object_ref ref;
+	if (rs.empty()) { 
+		return NULL;
+	}
+	get_database()->get_object(ref, rs[0][0].as(opid_t()), rs[0][1].as(stid_t()));
+	return ref;
+}
+
+bool pgsql_dictionary::del(const char* name) const
+{
+	pgsql_storage* pg = get_storage(this);
+	result rs = pg->statement("hash_delall")(hnd->opid)(name).exec();
+	return rs.affected_rows() != 0;
+}
+
+bool pgsql_dictionary::del(const char* name, anyref obj) const
+{
+	pgsql_storage* pg = get_storage(this);
+	hnd_t obj_hnd = obj->get_handle();
+	if (obj_hnd == NULL) { 
+		return false;
+	}
+	result rs = pg->statement("hash_del")(hnd->opid)(name)(obj_hnd->opid)(obj_hnd->storage->id).exec();
+	return rs.affected_rows() != 0;
+}
+
+anyref pgsql_dictionary::apply(hash_item::item_function) const
+{
+	assert(false);
+}
+
+void pgsql_dictionary::reset()
+{
+	pgsql_storage* pg = get_storage(this);
+	pg->statement("hash_drop")(hnd->opid).exec();
+}
+
+size_t pgsql_dictionary::get_number_of_elements() const
+{
+	pgsql_storage* pg = get_storage(this);
+	result rs = pg->statement("hash_size")(hnd->opid).exec();
+	return rs[0][0].as(int64_t());
 }

@@ -32,14 +32,14 @@ BEGIN_GOODS_NAMESPACE
 // This class provides bridge to PostgreSQL
 //
 class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage { 
-	work* txn;
-	connection* con;
-	opid_t opid_buf[OPID_BUF_SIZE];
-	size_t opid_buf_pos;
-
+    work* txn;
+    connection* con;
+    opid_t opid_buf[OPID_BUF_SIZE];
+    size_t opid_buf_pos;
+    
   public:
-	pgsql_storage(stid_t sid) : dbs_storage(sid, NULL) {}
-
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL) {}
+	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
                                   opid_t opidBuf[], size_t nReservedOids, hnd_t clusterWith[]);
@@ -140,14 +140,20 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    add_user(char const* login, char const* password);
     virtual void    del_user(char const* login);
 
-	ref<set_member> find(char const* op, string key);
-	void remove_set(opid_t opid);
+    invocation statement(char const* name);
+
+    ref<set_member> index_find(opid_t index, char const* op, string key);
+    void hash_put(opid_t hash, const char* name, opid_t opid);
+    opid_t hash_get(opid_t hash, const char* name);
+    bool hash_del(opid_t hash, const char* name);
+    bool hash_del(opid_t hash, const char* name, opid_t opid);
+    void hash_drop(opid_t hash);
+    void hash_size(opid_t hash);
 };
 
 
-class GOODS_DLL_EXPORT pgsql_index : public b_tree
+class GOODS_DLL_EXPORT pgsql_index : public B_tree
 {
-		hnd->storage->
   public:
     virtual ref<set_member> find(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> find(const char* str) const;
@@ -158,8 +164,47 @@ class GOODS_DLL_EXPORT pgsql_index : public b_tree
 
     virtual void insert(ref<set_member> mbr);
     virtual void remove(ref<set_member> mbr);
-	virtual void clear();
+    virtual void clear();
+
+    METACLASS_DECLARATIONS(pgsql_index, B_tree);
+    pgsql_index(anyref const& obj, int varying=0) : B_tree(self_class, obj, int varying) {}
 };
 	
+class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary { 
+  public: 
+    //
+    // Add to hash table association of object with specified name.
+    //
+    virtual void        put(const char* name, anyref obj);
+    //
+    // Search for object with specified name in hash table.
+    // If object is not found NULL is returned.
+    //
+    virtual anyref      get(const char* name) const;
+    //
+    // Remove object with specified name from hash table.
+    // If there are several objects with the same name the one last inserted
+    // is removed. If such name was not found 'False' is returned.
+    //
+    virtual boolean     del(const char* name);
+    //
+    // Remove concrete object with specified name from hash table.
+    // If such name was not found or it is associated with different object
+    // 'False' is returned. If there are several objects with the same name, 
+    // all of them are compared with specified object.
+    //    
+    virtual boolean     del(const char* name, anyref obj);
+
+    virtual anyref apply(hash_item::item_function) const;	
+
+    virtual void reset();
+
+    virtual size_t get_number_of_elements() const;
+
+    METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
+    
+    pgsql_dictionary() : dictionary(self_class) {}
+};    
+
 
 #endif
