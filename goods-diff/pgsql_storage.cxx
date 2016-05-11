@@ -46,8 +46,8 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con->prepare("get_class", "select desc from classes where oid=?"); 
 	con->prepare("put_class", "insert into classes (desc) values ($1)"); 
 	con->prepare("change_class", "update classes set desc=$1 where oid=$2"); 
-	con->prepare("index_equal", "select * from set_member where owner=$1 and key=$2");
-	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2");
+	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
+	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 limit 1");
 	con->prepare("index_drop", "delete from set_member where owner=$1");
 
 	con->prepare("hash_put", "insert into hash_table (owner,name,opid,sid) values ($1,$2,$3,$4)");
