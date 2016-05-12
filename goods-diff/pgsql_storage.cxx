@@ -48,7 +48,10 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con->prepare("change_class", "update classes set desc=$1 where oid=$2"); 
 	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
 	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 limit 1");
+	con->prepare("index_equal_skey", "select * from set_member m where owner=$1 and skey=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.skey=$2)");
+	con->prepare("index_greater_or_equal_skey", "select * from set_member where owner=$1 and skey>=$2 limit 1");
 	con->prepare("index_drop", "delete from set_member where owner=$1");
+	con->prepare("index_del", "delete from set_member where oid=$1");
 
 	con->prepare("hash_put", "insert into hash_table (owner,name,opid,sid) values ($1,$2,$3,$4)");
 	con->prepare("hash_get", "select opid,sid from hash_table where owner=$1 and name=$2");
@@ -63,6 +66,9 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 			string table_name = get_table(cls);
 			string class_name(cls->name);
 			get_columns("", cls->fields, columns);
+			if (cls->base_class == &set_member::self_desc) { 
+				columns.push_back("skey");
+			}
 			{
 				std::stringstream sql;			
 				sql << "insert into " << table_name << " (";
@@ -563,6 +569,18 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		stmt(hdr->get_opid());
 		size_t left = store_struct(desc->fields, stmt, (char*)(hdr+1), hdr->get_size());
 		assert(left == 0);
+		if (desc->base_class == &set_member::self_desc) { 
+			int64_t skey = 0; 
+			switch (hdr->get_size() - sizeof(dbs_reference_t)*4) { 
+			  case 4:
+				skey = unpack4((char*)(hdr+1) + sizeof(dbs_reference_t)*4);
+				break;
+			  case 8:
+				skey = unpack8((char*)(hdr+1) + sizeof(dbs_reference_t)*4);
+				break;
+			}
+			stmt(skey);
+		}
 		stmt.exec();
 	}
 	txn->commit();
@@ -647,48 +665,56 @@ field_descriptor& pgsql_index::describe_components()
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(opid, "index_equal", string(str, len));
+	return pg->index_find(hnd->opid, "index_equal", string(str, len));
 }
 
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(opid, "index_greater_or_equal", string(str, len));
+	return pg->index_find(hnd->opid, "index_greater_or_equal", string(str, len));
 }
 
 
 ref<set_member> pgsql_index::find(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->find(opid, "index_equal", string(str));
+	return pg->find(hnd->opid, "index_equal", string(str));
 }
 
 ref<set_member> pgsql_index::find(skey_t key) const
 {
-	assert(false);
+	pgsql_storage* pg = get_storage(this);
+	stringstream buf;			
+	buf << key;
+	return pg->find(hnd->opid, "index_equal_skey", buf);
 }
 
 ref<set_member> pgsql_index::findGE(skey_t key) const
 {
-	assert(false);
+	pgsql_storage* pg = get_storage(this);
+	stringstream buf;			
+	buf << key;
+	return pg->find(hnd->opid, "index_greater_or_equal_skey", buf);
 }
 
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(opid, "greater_or_equal", string(str, len));
+	return pg->index_find(hnd->opid, "index_greater_or_equal", string(str, len));
 }
 	
 ref<set_member> pgsql_index::findGE(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(opid, "greater_or_equal", string(str));
+	return pg->index_find(hnd->opid, "index_greater_or_equal", string(str));
 }
 
 
 void pgsql_index::insert(ref<set_member> mbr)
 {
-	ref<set_member> next = findGE(mbr->key);
+	skey_t skey = mbr->get_key();
+	ref<set_member> next = (skey != mbr->set_member::get_key())
+		? findGE(skey) : findGE(mbr->key);
 	if (next.is_nil()) { 
 		put_last(mbr); 
 	} else {
@@ -698,17 +724,15 @@ void pgsql_index::insert(ref<set_member> mbr)
 
 void pgsql_index::remove(ref<set_member> mbr)
 {
-	ref<set_member> next = find(mbr->key);
-	if (!next.is_nil()) { 
-		set_owner::remove(mbr);
-	}
-		
+	pgsql_storage* pg = get_storage(this);
+	pg->statement("index_del")(mbr->opid).exec();	
+	set_owner::remove(mbr);
 }
 
 void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
-	pg->statement("index_drop")(opid).exec();	
+	pg->statement("index_drop")(hnd->opid).exec();	
     last = NULL;
     first = NULL;
 	n_members = 0;
