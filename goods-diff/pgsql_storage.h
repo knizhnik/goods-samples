@@ -149,6 +149,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     bool hash_del(opid_t hash, const char* name, opid_t opid);
     void hash_drop(opid_t hash);
     void hash_size(opid_t hash);
+    void create_table(class_descriptor* desc);
 };
 
 

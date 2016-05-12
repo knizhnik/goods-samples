@@ -38,10 +38,24 @@ static string get_port(string address)
 	return address.substr(address.find(':')+1);
 }
 
+static void define_table_columns(string prefix, field_descriptor* first, stringstream& sql)
+{
+    do { 
+		if (field->field->loc.type == fld_structure) { 
+			define_table_columns(prefix + field->name, field->components, sql);
+		} else { 
+			sql << ",\"" << prefix << field->name << "\" " << map_type(field->dbs.type, field->dbs.size);
+		}
+        field = (field_descriptor*)field->next;
+    } while (field != first);
+}
+	
+
 void pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
 	opid_buf_pos = 0;
 	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
+	work txn(*con);	
 	con->prepare("alloc", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("get_class", "select desc from classes where oid=?"); 
 	con->prepare("put_class", "insert into classes (desc) values ($1)"); 
@@ -70,11 +84,11 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 				columns.push_back("skey");
 			}
 			{
-				std::stringstream sql;			
+				stringstream sql;			
 				sql << "insert into " << table_name << " (";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
-					sql << columns[i];
+					sql << '\"' << columns[i] << '\"';
 				}
 				sql << ") values (";
 				for (size_t i = 0; i < columns.size(); i++) { 
@@ -85,23 +99,35 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 				con->prepare(class_name + "_insert", sql);
 			}
 			{
-				std::stringstream sql;			
+				stringstream sql;			
 				sql << "update " << class_name << " set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
-					sql << columns[i] << "=$" << (i+2);
+					sql << '\"' << columns[i] << '\"';
 				}
 				sql << " where opid=$1";
 				con->prepare(class_name + "_update", sql);
 			}
 			if (table_name == class_name) {
+				stringstream sql;
+				sql << "create table if not exists \"" << cls->name << "\"(opid bigint primary key";
+				define_table_columns("", cls->fields, csql);
+				if (cls->base_class == &set_member::self_desc) { 
+					sql << ", skey bigint";
+				}
+				sql << ")";
+				txn.exec(sql.str());			   
+
 				con->prepare(table_name + "_delete", string("delete from ") + table_name + " where opid=$1");
 				con->prepare(table_name + "_loadobj", string("select * from ") + table_name + " where opid=$1");
 				con->prepare(table_name + "_loadset", string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, ") + table_name + " t where t.opid=s.obj limit $2");
 
 			}
-		}
-	}
+		}	
+	}	
+	txn.exec("create index if not exists set_member_key on set_member(key)");
+	txn.exec("create index if not exists set_member_skey on set_member(skey)");
+	txn.commit();
 }
 
 void pgsql_storage::close()
@@ -154,10 +180,10 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
-	size_t dbs_desc_size = dbs_desc->get_size();
-	binarystring buf(dbs_desc, dbs_desc_size);
+	size_t dbs_desc_size = dbs_desc->get_size();	
+	binarystring buf(dbs_desc, dbs_desc_size);	
 	((dbs_class_descriptor*)buf.data())->pack();
-	result rs = txt->prepared("put_class")(data).exec();
+	result rs = txn->prepared("put_class")(data).exec();	
 	return rs.oid() - OID_BIAS;
 }
 
