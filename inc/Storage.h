@@ -67,8 +67,9 @@ public:
 		return m_LoginRefusedReason == rlc_authentication_required;
 	}
 
-    virtual void disconnected(stid_t sid);
     virtual dbs_storage* create_dbs_storage(stid_t sid) const;
+#if PGSQL_ORM
+    virtual void disconnected(stid_t sid);
     virtual obj_storage* create_obj_storage(stid_t sid);
 	virtual void receive_message( int message);
 
@@ -95,6 +96,9 @@ public:
 	UINT GetLoginRefusedReasson() const {
 		return m_LoginRefusedReason;
 	}
+#else
+	
+#endif
 
 private:
 	// -- do not allow to copy
