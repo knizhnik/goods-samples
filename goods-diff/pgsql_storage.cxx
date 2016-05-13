@@ -11,7 +11,7 @@
 #define MAX_CLASSES 256
 #define GET_CID(x) ((x) % MAX_CLASSES)
 #define GET_OID(x) ((x) / MAX_CLASSES)
-#define MAKE_OPID(t,o) ((o)*MAX_CLASSES + (t))
+#define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
 
 inline string get_table(class_descriptor* desc)
 {
@@ -102,6 +102,14 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	opid_buf_pos = 0;
 	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
 	work txn(*con);	
+
+	txn.exec("create table if not exists dict_entry (owner bigint, key text, value bigint)");
+	txt.exec("create table if not exists classes (cpid integer primary key, descriptor bytea)");
+	txn.exec("create index if not exists dict_index on dict_entry(key)");
+
+	txn.exec("create sequence if not exists oid_sequence");
+	txn.exec("create sequence if not exists cid_sequence");
+		
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
 	con->prepare("get_class", "select descriptor from classes where cpid=?"); 
@@ -158,9 +166,23 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 			if (table_name == class_name) {
 				stringstream sql;
 				sql << "create table if not exists \"" << cls->name << "\"(opid bigint primary key";
-				define_table_columns("", cls->fields, csql);
+				define_table_columns("", cls->fields, sql);
+
+				// for all derived classes
+				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
+					for (class_descriptor* derived = class_descriptor::hash_table[i]; derived != NULL;  derived = derived->next) {
+						if (dervied != cls) {
+							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
+								if (base_class == cls) { 
+									define_table_columns("", derived->fields, sql);
+									break;
+								}
+							}
+						}
+					}
+				}													
 				if (cls->base_class == &set_member::self_desc) { 
-					sql << ", skey bigint";
+					sql << ",skey bigint";
 				}
 				sql << ")";
 				txn.exec(sql.str());			   
@@ -172,14 +194,9 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 			}
 		}	
 	}	
-	txn.exec("create table if not exists dict_entry (owner bigint, key text, value bigint)");
-	txt.exec("create table if not exists classes (cpid integer primary key, descriptor bytea)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
 	txn.exec("create index if not exists set_member_skey on set_member(skey)");
 
-	txn.exec("create sequence if not exists oid_sequence");
-	txn.exec("create sequence if not exists cid_sequence");
-		
 	txn.commit();
 }!
 
@@ -191,7 +208,7 @@ void pgsql_storage::close()
 
 
 void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
-                                       opid_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
+								  opid_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
 {
 	// Bulk allocate at obj_storage level is disabled 
 	assert(false);
@@ -206,7 +223,7 @@ opid_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, opid_t clust
 		}
 		opid_buf_pos = 0;
 	}
-	return MAKE_OPID(opid_buf{opid_buf_pos++], cpid);
+	return MAKE_OPID(cpid, opid_buf{opid_buf_pos++]);
 }
 
 void pgsql_storage::deallocate(opid_t opid)
@@ -465,7 +482,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 		opid_t opid = opp[i];
 		cpid_t cpid = GET_CID(opid);
 		class_descriptor* desc = lookup_class(cpid);		
-		result rs = txn->prepared(get_table(desc) + "_loadobj")(GET_OID(opid)).exec();
+		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
 		unpack_object("", desc, buf, rs[0]);
 	}
 }
@@ -649,6 +666,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(hdr->get_cpid());
 		invocation stmt = txn->preapred(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
+		assert(hdr->get_opid() != 0);
 		stmt(hdr->get_opid());
 		size_t left = store_struct(desc->fields, stmt, (char*)(hdr+1), hdr->get_size());
 		assert(left == 0);
@@ -671,10 +689,10 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 }
 	
 void pgsql_storage::commit_transaction(stid_t      coordinator, 
-                                            int         n_trans_servers,
-                                            stid_t*     trans_servers,
-                                            dnm_buffer& buf, 
-                                            trid_t      tid)
+									   int         n_trans_servers,
+									   stid_t*     trans_servers,
+									   dnm_buffer& buf, 
+									   trid_t      tid)
 {
 	assert(false);
 }

@@ -36,7 +36,8 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     connection* con;
     opid_t opid_buf[OPID_BUF_SIZE];
     size_t opid_buf_pos;
-    
+    std::vector<class_descrioptor*> descriptor_table;
+
   public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL) {}
 	
