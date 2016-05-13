@@ -23,7 +23,12 @@ unsigned char CDataBase::m_ServerName[];
 std::string	CDataBase::m_Username;
 std::string	CDataBase::m_EncriptedPassword;
 
-
+#if PGSQL_ORM
+dbs_storage* CDataBase::create_dbs_storage(stid_t sid) const 
+{
+	return NEW pgsql_storage(sid);
+}
+#else
 void CDataBase::disconnected(stid_t sid)
 {
 #if !defined(CS_SERVICE)
@@ -197,6 +202,7 @@ void CDataBase::receive_message(int message)
 			break;
 	}
 }
+#endif
 
 void CDataBase::CleanUp()
 {

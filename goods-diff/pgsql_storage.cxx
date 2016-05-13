@@ -12,6 +12,7 @@
 #define GET_CID(x) ((x) % MAX_CLASSES)
 #define GET_OID(x) ((x) / MAX_CLASSES)
 #define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
+#define ROOT_OID 0
 
 inline string get_table(class_descriptor* desc)
 {
@@ -103,15 +104,17 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
 	work txn(*con);	
 
-	txn.exec("create table if not exists dict_entry (owner bigint, key text, value bigint)");
-	txt.exec("create table if not exists classes (cpid integer primary key, descriptor bytea)");
+	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
+	txt.exec("create table if not exists classes(cpid integer primary key, descriptor bytea)");
+	txn.exec("create table if not exists db_root(root bigint)");
 	txn.exec("create index if not exists dict_index on dict_entry(key)");
 
 	txn.exec("create sequence if not exists oid_sequence");
-	txn.exec("create sequence if not exists cid_sequence");
+	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
 		
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
+	con->prepare("get_root", "select root from db_root"); 
 	con->prepare("get_class", "select descriptor from classes where cpid=?"); 
 	con->prepare("put_class", "insert into classes (cpid,descriptor) values ($1,$2)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
@@ -198,7 +201,7 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	txn.exec("create index if not exists set_member_skey on set_member(skey)");
 
 	txn.commit();
-}!
+}
 
 void pgsql_storage::close()
 {
@@ -243,6 +246,8 @@ void pgsql_storage::unlock(opid_t opid, lck_t lck)
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
+	if (cpid == RAW_CPID) { 
+		
 	result rs = txt->prepared("get_class")(cpid).exec();
 	binarystring desc = rs[0][0].as(binarystring());
 	memcpy(buf.put(desc.size()), desc.data());
@@ -271,9 +276,20 @@ void pgsql_storage::change_class(cpid_t cpid,
 	txt->prepared("change_class")(buf.data())(cpid).exec();
 }
 	
-
+																				 
 void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
 {
+	if (opid == ROOT_OPID) { 
+		result rs = txn->prepared("get_root").exec();
+		if (rs.empty()) { 
+			dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header));
+			hdr->set_opid(MAKE_OPID(RAW_CPID, ROOT_OID));		
+			hdr->set_cpid(RAW_CPID);
+			hdr->set_sid(id);
+			hdr->set_flags(0);
+			return;
+		}
+	}
 	load(&opid, 1, flags, buf);
 }
 
@@ -663,11 +679,17 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	char* end = ptr + buf.size();
 	while (ptr < end) { 
 		dbs_object_header* hdr = (dbs_object_header*)&buf;
+		opid_t opid = hdr->get_opid();
+		if (GET_OID(opid) == ROOT_OID) { 
+			
+		}
+			
+		cpid_t cpid = hdr->get_cpid();		
 		int flags = hdr->get_flags();
-		class_descriptor* desc = lookup_class(hdr->get_cpid());
+		class_descriptor* desc = lookup_class(cpid);
 		invocation stmt = txn->preapred(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
-		assert(hdr->get_opid() != 0);
-		stmt(hdr->get_opid());
+		assert(opid != 0);
+		stmt(opid);
 		size_t left = store_struct(desc->fields, stmt, (char*)(hdr+1), hdr->get_size());
 		assert(left == 0);
 		if (desc->base_class == &set_member::self_desc) { 

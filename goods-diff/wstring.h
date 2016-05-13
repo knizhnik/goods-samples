@@ -19,12 +19,14 @@
 #include <stdarg.h>
 #include <stdlib.h>
 
-#if (defined(__FreeBSD__) && __FreeBSD__ < 5)
+#if (defined(__FreeBSD__) && __FreeBSD__ < 5) && !defined(__APPLE__)
 #define NO_OS_UNICODE_SUPPORT 1
+#else
+#define NO_OS_UNICODE_SUPPORT 0
 #endif
 
 
-#ifdef NO_OS_UNICODE_SUPPORT
+#if NO_OS_UNICODE_SUPPORT
 
 #if !defined(__APPLE__)
 typedef unsigned short wchar_t;
