@@ -99,7 +99,7 @@ static void define_table_columns(string prefix, field_descriptor* first, strings
 
 void pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
-	opid_buf_pos = 0;
+	opid_buf_pos = OPID_BUF_SIZE;
 	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
 	work txn(*con);	
 
@@ -170,10 +170,10 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
-					for (class_descriptor* derived = class_descriptor::hash_table[i]; derived != NULL;  derived = derived->next) {
+					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL;  derived = derived->next) {
 						if (dervied != cls) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
-								if (base_class == cls) { 
+								if (base == cls) { 
 									define_table_columns("", derived->fields, sql);
 									break;
 								}
@@ -223,7 +223,7 @@ opid_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, opid_t clust
 		}
 		opid_buf_pos = 0;
 	}
-	return MAKE_OPID(cpid, opid_buf{opid_buf_pos++]);
+	return MAKE_OPID(cpid, opid_buf[opid_buf_pos++]);
 }
 
 void pgsql_storage::deallocate(opid_t opid)
