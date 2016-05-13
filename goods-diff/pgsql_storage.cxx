@@ -115,6 +115,7 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
 	con->prepare("get_root", "select root from db_root"); 
+	con->prepare("set_root", "insert into db_root set root=$1"); 
 	con->prepare("get_class", "select descriptor from classes where cpid=?"); 
 	con->prepare("put_class", "insert into classes (cpid,descriptor) values ($1,$2)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
@@ -246,8 +247,7 @@ void pgsql_storage::unlock(opid_t opid, lck_t lck)
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
-	if (cpid == RAW_CPID) { 
-		
+	assert(cpid != RAW_CPID);		
 	result rs = txt->prepared("get_class")(cpid).exec();
 	binarystring desc = rs[0][0].as(binarystring());
 	memcpy(buf.put(desc.size()), desc.data());
@@ -289,6 +289,7 @@ void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
 			hdr->set_flags(0);
 			return;
 		}
+		opid = rs[0][0].as(opid_t());
 	}
 	load(&opid, 1, flags, buf);
 }
@@ -680,11 +681,12 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	while (ptr < end) { 
 		dbs_object_header* hdr = (dbs_object_header*)&buf;
 		opid_t opid = hdr->get_opid();
-		if (GET_OID(opid) == ROOT_OID) { 
-			
-		}
-			
 		cpid_t cpid = hdr->get_cpid();		
+		assert(cpid != RAW_CPID);
+		if (GET_OID(opid) == ROOT_OID) { 
+			opid = MAKE_OPID(cpid, ROOT_OID);
+			txn->prepared("set_root")(opid).exec();
+		}			
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
 		invocation stmt = txn->preapred(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
