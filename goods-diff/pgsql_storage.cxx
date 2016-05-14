@@ -106,11 +106,17 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
 	txt.exec("create table if not exists classes(cpid integer primary key, descriptor bytea)");
+	txt.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, obj bigint, key bytes, skey bigint)");
 	txn.exec("create table if not exists db_root(root bigint)");
-	txn.exec("create index if not exists dict_index on dict_entry(key)");
+
+	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
+	txn.exec("create index if not exists dict_owner_index on dict_entry(owner)");
+	txn.exec("create index if not exists set_member_key on set_member(key)");
+	txn.exec("create index if not exists set_member_skey on set_member(skey)");
 
 	txn.exec("create sequence if not exists oid_sequence");
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
+
 		
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
@@ -174,7 +180,7 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
-					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL;  derived = derived->next) {
+					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
 						if (dervied != cls) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 								if (base == cls) { 
@@ -185,9 +191,6 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 						}
 					}
 				}													
-				if (cls->base_class == &set_member::self_desc) { 
-					sql << ",skey bigint";
-				}
 				sql << ")";
 				txn.exec(sql.str());			   
 
@@ -198,9 +201,6 @@ void pgsql_storage::open(char const* connection_address, const char* login, cons
 			}
 		}	
 	}	
-	txn.exec("create index if not exists set_member_key on set_member(key)");
-	txn.exec("create index if not exists set_member_skey on set_member(skey)");
-
 	txn.commit();
 }
 
@@ -837,9 +837,8 @@ ref<set_member> pgsql_index::findGE(const char* str) const
 
 void pgsql_index::insert(ref<set_member> mbr)
 {
-	skey_t skey = mbr->get_key();
-	ref<set_member> next = (skey != mbr->set_member::get_key())
-		? findGE(skey) : findGE(mbr->key);
+	ref<set_member> next = (&mbr->cls != &set_member::self_desc)
+		? findGE(mbr->get_key()) : findGE(mbr->key);
 	if (next.is_nil()) { 
 		put_last(mbr); 
 	} else {
