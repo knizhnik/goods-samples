@@ -12,8 +12,8 @@
 #ifndef __PGSQL_STORAGE_H__
 #define __PGSQL_STORAGE_H__
 
-#include "goodsdlx.h"
-#include "protocol.h"
+#include "goods.h"
+#include "dbscls.h"
 
 #include <pqxx/connection>
 #include <pqxx/transaction>
@@ -21,12 +21,13 @@
 #include <pqxx/except>
 #include <pqxx/binarystring>
 
+using namespace std;
 using namespace pqxx;
 using namespace pqxx::prepare;
 
 BEGIN_GOODS_NAMESPACE
 
-#define OPID_BUF_SIZE 64
+const size_t OPID_BUF_SIZE = 64;
 
 //
 // This class provides bridge to PostgreSQL
@@ -36,10 +37,11 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     connection* con;
     opid_t opid_buf[OPID_BUF_SIZE];
     size_t opid_buf_pos;
-    std::vector<class_descrioptor*> descriptor_table;
+    std::vector<class_descriptor*> descriptor_table;
+    size_t max_preloaded_set_members;
 
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), max_preloaded_set_members(10) {}
 	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
@@ -141,9 +143,14 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    add_user(char const* login, char const* password);
     virtual void    del_user(char const* login);
 
+    class_descriptor* lookup_class(cpid_t cpid);
+    void unpack_object(string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record);
+    opid_t load_query_result(result& rs, dnm_buffer& buf);
+    size_t store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size);
+
     invocation statement(char const* name);
 
-    ref<set_member> index_find(opid_t index, char const* op, string key);
+    ref<set_member> index_find(database const* db, opid_t index, char const* op, string const& key);
     void hash_put(opid_t hash, const char* name, opid_t opid);
     opid_t hash_get(opid_t hash, const char* name);
     bool hash_del(opid_t hash, const char* name);
@@ -169,7 +176,7 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
     virtual void clear();
 
     METACLASS_DECLARATIONS(pgsql_index, B_tree);
-    pgsql_index(anyref const& obj, int varying=0) : B_tree(self_class, obj, int varying) {}
+    pgsql_index(anyref const& obj, int varying=0) : B_tree(self_class, obj, varying) {}
 };
 	
 class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary { 

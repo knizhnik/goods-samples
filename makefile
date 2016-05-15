@@ -1,6 +1,7 @@
 DEBUG?=1
 
-CC = g++ -std=c++11
+#CC = g++ -std=c++11
+CC = g++
 SYSDEFS = -pthread
 ifeq ($(DEBUG), 1)
 OPTLEVEL = 0
@@ -11,9 +12,9 @@ CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc
 LD = g++
 LDFLAGS = $(SYSDEFS) -g -lz
 
-OBJS = GoodsSample.o ClientStorage.o DatabaseRoot.o Dimensions.o DimensionDataLayer.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o pgsql_storage.o
+OBJS = pgsql_storage.o GoodsSample.o ClientStorage.o DatabaseRoot.o Dimensions.o DimensionDataLayer.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
 
-INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/DimensionDataLayer.h inc/Dimensions.h inc/FillDatabase.h inc/goods_container.h inc/GoodsSampleApp.h inc/GoodsTLCache.h inc/IndexHelper.h inc/ItemDefinitionDataLayer.h inc/ItemDefinition.h inc/ItemDefinitionList.h inc/magaya_client_storage.h inc/PackageDataLayer.h inc/Package.h inc/PackageList.h inc/RootDataLayer.h inc/Storage.h inc/WarehouseItemDataLayer.h inc/WarehouseItem.h inc/WarehouseItemList.h inc/WarehouseReceiptDataLayer.h inc/WarehouseReceipt.h inc/WarehouseReceiptList.h inc/pgsql_storage.h
+INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/DimensionDataLayer.h inc/Dimensions.h inc/FillDatabase.h inc/goods_container.h inc/GoodsSampleApp.h inc/GoodsTLCache.h inc/IndexHelper.h inc/ItemDefinitionDataLayer.h inc/ItemDefinition.h inc/ItemDefinitionList.h inc/magaya_client_storage.h inc/PackageDataLayer.h inc/Package.h inc/PackageList.h inc/RootDataLayer.h inc/Storage.h inc/WarehouseItemDataLayer.h inc/WarehouseItem.h inc/WarehouseItemList.h inc/WarehouseReceiptDataLayer.h inc/WarehouseReceipt.h inc/WarehouseReceiptList.h goods-diff/pgsql_storage.h
 
 
 all: GoodsSample
