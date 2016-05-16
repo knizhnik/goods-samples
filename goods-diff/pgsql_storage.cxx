@@ -4,9 +4,9 @@
 // GOODS object identifier consists of 32-bit OPID and 16-bit STID.
 // GOODS ORM for PostgreSQL only support work with one storage, so we will not store STID.
 // But in  PostgreSQL we want to include in identifier object type information (CPID) to
-// make it possible to detect object type without prior to loading it.
-// Right now we include CPID into 321-bit OPID for compatibility reasons.
-// In future we are going to extend opid_t to 64-bits. The there will be no more limitation 
+// make it possible to detect object type without prior loading it.
+// Right now we include CPID into 32-bit OPID for compatibility reasons.
+// In future we are going to extend opid_t to 64-bits. There will be no more limitation 
 // for maximal number of classes
 #define MAX_CLASSES 256
 #define GET_CID(x) ((x) % MAX_CLASSES)
@@ -14,6 +14,10 @@
 #define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
 #define ROOT_OID 0
 
+//
+// We stored all inherited classes in one table,
+// so we need to find table for top class
+//
 inline string get_table(class_descriptor* desc)
 {
 	while (desc->base_class != &object::self_class) { 
@@ -48,7 +52,7 @@ static string get_port(string const& address)
 
 static char const* map_type(field_descriptor* field)
 {
-	if (field->loc.n_items != 1) {
+	if (field->loc.n_items != 1) { // right now we support only char[] for varying part
 		return "text";
 	}
 	switch (field->loc.type) { 
@@ -103,12 +107,12 @@ static void define_table_columns(string const& prefix, field_descriptor* first, 
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
 	opid_buf_pos = OPID_BUF_SIZE;
-	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
+	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address)); // database name is expected to be equal to user name
 	work txn(*con);	
 
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
 	txn.exec("create table if not exists classes(cpid integer primary key, descriptor bytea)");
-	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, obj bigint, key bytes, skey bigint)");
+	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, obj bigint, key bytea, skey bigint)");
 	txn.exec("create table if not exists db_root(root bigint)");
 
 	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
@@ -123,7 +127,8 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
 	con->prepare("get_root", "select root from db_root"); 
-	con->prepare("set_root", "insert into db_root set root=$1"); 
+	con->prepare("add_root", "insert into db_root values ($1)"); 
+	con->prepare("set_root", "update db_root set root=$1"); 
 	con->prepare("get_class", "select descriptor from classes where cpid=?"); 
 	con->prepare("put_class", "insert into classes (cpid,descriptor) values ($1,$2)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
@@ -132,7 +137,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("index_equal_skey", "select * from set_member m where owner=$1 and skey=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.skey=$2)");
 	con->prepare("index_greater_or_equal_skey", "select * from set_member where owner=$1 and skey>=$2 limit 1");
 	con->prepare("index_drop", "delete from set_member where owner=$1");
-	con->prepare("index_del", "delete from set_member where oid=$1");
+	con->prepare("index_del", "delete from set_member where owner=$1 and oid=$2");
 
 	con->prepare("hash_put", "insert into dict_entry (owner,name,value) values ($1,$2,$3)");
 	con->prepare("hash_get", "select value from dict_entry where owner=$1 and name=$2");
@@ -152,15 +157,13 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			}
 			{
 				stringstream sql;			
-				sql << "insert into " << table_name << " (";
+				sql << "insert into \"" << table_name << "\" (opid";
 				for (size_t i = 0; i < columns.size(); i++) { 
-					if (i != 0) sql << ',';
-					sql << '\"' << columns[i] << '\"';
+					sql << ",\"" << columns[i] << '\"';
 				}
-				sql << ") values (";
+				sql << ") values ($1";
 				for (size_t i = 0; i < columns.size(); i++) { 
-					if (i != 0) sql << ',';
-					sql << '$' << (i+1);
+					sql << ",$" << (i+2);
 				}
 				sql << ")";
 				con->prepare(class_name + "_insert", sql.str());
@@ -170,14 +173,14 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				sql << "update " << class_name << " set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
-					sql << '\"' << columns[i] << '\"';
+					sql << '\"' << columns[i] << "\"=$" << (i+2);
 				}
 				sql << " where opid=$1";
 				con->prepare(class_name + "_update", sql.str());
 			}
 			if (table_name == class_name) {
 				stringstream sql;
-				sql << "create table if not exists \"" << cls->name << "\"(opid bigint primary key";
+				sql << "create table if not exists \"" << class_name << "\"(opid bigint primary key";
 				define_table_columns("", cls->fields, sql);
 
 				// for all derived classes
@@ -196,9 +199,9 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				sql << ")";
 				txn.exec(sql.str());			   
 
-				con->prepare(table_name + "_delete", string("delete from ") + table_name + " where opid=$1");
-				con->prepare(table_name + "_loadobj", string("select * from ") + table_name + " where opid=$1");
-				con->prepare(table_name + "_loadset", string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, ") + table_name + " t where t.opid=s.obj limit $2");
+				con->prepare(table_name + "_delete", string("delete from \"") + table_name + "\" where opid=$1");
+				con->prepare(table_name + "_loadobj", string("select * from \"") + table_name + "\" where opid=$1");
+				con->prepare(table_name + "_loadset", string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,s.skey as mbr_skey,t.* from set_members s, \"") + table_name + "\" t where t.opid=s.obj limit $2");
 
 			}
 		}	
@@ -252,6 +255,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
 	result rs = txn->prepared("get_class")(cpid).exec();
+	assert(rs->size() == 1);
 	binarystring desc = binarystring(rs[0][0]);
 	memcpy(buf.put(desc.size()), desc.data(), desc.size());
 }
@@ -263,6 +267,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 	cpid_t cpid;
 	{
 		result rs = txn->prepared("new_cid").exec();
+		assert(rs->size() == 1);
 		cpid = rs[0][0].as(cpid_t());
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
@@ -292,6 +297,7 @@ void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
 			hdr->set_flags(0);
 			return;
 		}
+		assert(rs->size() == 1);
 		opid = rs[0][0].as(opid_t());
 	}
 	load(&opid, 1, flags, buf);
@@ -307,9 +313,9 @@ class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 		dbs_desc->unpack();
 		desc = class_descriptor::find(dbs_desc->name());
 		assert(desc != NULL);
-		assert(*desc->dbs_desc != *dbs_desc);
+		assert(*desc->dbs_desc == *dbs_desc);
 		if (descriptor_table.size() <= cpid) { 
-			descriptor_table.resize(cpid);
+			descriptor_table.resize(cpid+1);
 		}
 		descriptor_table[cpid] = desc;
 	}
@@ -430,8 +436,8 @@ static size_t unpack_struct(string const& prefix, field_descriptor* first,
 
 void pgsql_storage::unpack_object(string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
 {
-	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
 	size_t hdr_offs = buf.size();
+	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
 	opid_t opid = record[prefix + "opid"].as(opid_t());
 	hdr->set_opid(opid);		
 	hdr->set_cpid(GET_CID(opid));
@@ -441,7 +447,7 @@ void pgsql_storage::unpack_object(string const& prefix, class_descriptor* desc, 
 	size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0);
 	assert(n_refs == desc->n_fixed_references);
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
-	hdr->size = buf.size() - hdr_offs;
+	hdr->set_size(buf.size() - hdr_offs - sizeof(dbs_object_header));
 
 	if (desc == &set_member::self_class && prefix.size() == 0) { 
 		opid_t mbr_obj_opid;
@@ -483,9 +489,9 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	class_descriptor* desc = lookup_class(cpid);
 	string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,s.skey as mbr_skey,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
-	buf.cut(buf.size());
+	buf.cut(buf.size()); // reset buffer
 	next_mbr = load_query_result(rs, buf);
 }
 
@@ -498,6 +504,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 		cpid_t cpid = GET_CID(opid);
 		class_descriptor* desc = lookup_class(cpid);		
 		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
+		assert(rs->size() == 1);
 		unpack_object("", desc, buf, rs[0]);
 	}
 }
@@ -513,6 +520,7 @@ void pgsql_storage::throw_object(opid_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
+	assert(txn == NULL && con != NULL);
 	txn = new work(*con);
 }
 
@@ -558,7 +566,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					  }
 					  buf[len] = 0;
 					  wstring_t wstr(&buf[0]);
-					  stmt(wstr.getChars());
+					  char* chars = wstr.getChars();
+					  stmt(chars);
+					  delete[] chars;
 				  } else {
 					  stmt(); // store NULL
 				  }
@@ -576,16 +586,16 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_signed_integer:
 				switch (field->loc.size) { 
 				  case 1:	
-					stmt((int)*src_bins++);
+					stmt((int2)*src_bins++);
 					size -= 1;
 					break;
 				  case 2:
-					stmt(unpack2(src_bins));
+					stmt((int2)unpack2(src_bins));
 					src_bins += 2;
 					size -= 2;
 					break;
 				  case 4:
-					stmt(unpack4(src_bins));
+					stmt((int4)unpack4(src_bins));
 					src_bins += 4;
 					size -= 4;
 					break;
@@ -604,16 +614,16 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_unsigned_integer:
 				switch (field->loc.size) { 
 				  case 1:	
-					stmt((int)*src_bins++);
+					stmt((nat2)*src_bins++);
 					size -= 1;
 					break;
 				  case 2:
-					stmt((nat2)unpack2(src_bins));
+					stmt(unpack2(src_bins));
 					src_bins += 2;
 					size -= 2;
 					break;
 				  case 4:
-					stmt((nat4)unpack4(src_bins));
+					stmt(unpack4(src_bins));
 					src_bins += 4;
 					size -= 4;
 					break;
@@ -673,6 +683,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 													  trid_t& tid)
 {
 	assert(n_trans_servers == 1);
+	assert(txn != NULL);
 	char* ptr = &buf;
 	char* end = ptr + buf.size();
 	while (ptr < end) { 
@@ -682,7 +693,12 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		assert(cpid != RAW_CPID);
 		if (GET_OID(opid) == ROOT_OID) { 
 			opid = MAKE_OPID(cpid, ROOT_OID);
-			txn->prepared("set_root")(opid).exec();
+			result rs = txn->prepared("get_root").exec();
+			if (rs.empty()) { 
+				txn->prepared("add_root")(opid).exec();
+			} else { 
+				txn->prepared("set_root")(opid).exec();
+			}
 		}			
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
@@ -709,6 +725,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	}
 	txn->commit();
 	delete txn;
+	tkn = NULL;
 	return true;
 }
 	
@@ -759,9 +776,11 @@ invocation pgsql_storage::statement(char const* name)
 ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, string const& key)
 {
 	result rs = txn->prepared(op)(index)(key).exec();
-	if (rs.empty()) { 
+	size_t size = rs.size();
+	if (size == 0) { 
 		return NULL;
 	}
+	assert(size == 1);
 	result::tuple record = rs[0];
 	opid_t opid = record[0].as(opid_t());
 	ref<set_member> mbr;
@@ -916,5 +935,6 @@ size_t pgsql_dictionary::get_number_of_elements() const
 {
 	pgsql_storage* pg = get_storage(this);
 	result rs = pg->statement("hash_size")(hnd->opid).exec();
-       return rs[0][0].as(int64_t());
+	assert(rs.size() == 1);
+	return rs[0][0].as(int64_t());
 }
