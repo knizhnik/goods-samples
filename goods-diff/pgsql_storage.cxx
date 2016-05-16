@@ -14,15 +14,15 @@
 #define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
 #define ROOT_OID 0
 
-inline string get_table(class_descriptor* desc)
+inline std::string get_table(class_descriptor* desc)
 {
 	while (desc->base_class != &object::self_class) { 
 		desc = desc->base_class;
 	}
-	return string(desc->name);
+	return std::string(desc->name);
 }
 
-static void get_columns(string const& prefix, field_descriptor* first, vector<string>& columns)
+static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns)
 {
 	field_descriptor* field = first;
 	
@@ -36,12 +36,12 @@ static void get_columns(string const& prefix, field_descriptor* first, vector<st
     } while (field != first);
 }
 
-static string get_host(string const& address)
+static std::string get_host(std::string const& address)
 {
 	return address.substr(0, address.find(':'));
 }
 
-static string get_port(string const& address)
+static std::string get_port(std::string const& address)
 {
 	return address.substr(address.find(':')+1);
 }
@@ -85,7 +85,7 @@ static char const* map_type(field_descriptor* field)
 	}
 }
 
-static void define_table_columns(string const& prefix, field_descriptor* first, stringstream& sql)
+static void define_table_columns(std::string const& prefix, field_descriptor* first, std::stringstream& sql)
 {
 	field_descriptor* field = first;
 
@@ -103,7 +103,7 @@ static void define_table_columns(string const& prefix, field_descriptor* first, 
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
 	opid_buf_pos = OPID_BUF_SIZE;
-	con = new connection(string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
+	con = new connection(std::string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address));
 	work txn(*con);	
 
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
@@ -143,15 +143,15 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
-			vector<string> columns;
-			string table_name = get_table(cls);
-			string class_name(cls->name);
+			std::vector<std::string> columns;
+			std::string table_name = get_table(cls);
+			std::string class_name(cls->name);
 			get_columns("", cls->fields, columns);
 			if (cls->base_class == &set_member::self_class) { 
 				columns.push_back("skey");
 			}
 			{
-				stringstream sql;			
+				std::stringstream sql;			
 				sql << "insert into " << table_name << " (";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
@@ -166,7 +166,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				con->prepare(class_name + "_insert", sql.str());
 			}
 			{
-				stringstream sql;			
+				std::stringstream sql;			
 				sql << "update " << class_name << " set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
@@ -176,7 +176,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				con->prepare(class_name + "_update", sql.str());
 			}
 			if (table_name == class_name) {
-				stringstream sql;
+				std::stringstream sql;
 				sql << "create table if not exists \"" << cls->name << "\"(opid bigint primary key";
 				define_table_columns("", cls->fields, sql);
 
@@ -196,9 +196,9 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				sql << ")";
 				txn.exec(sql.str());			   
 
-				con->prepare(table_name + "_delete", string("delete from ") + table_name + " where opid=$1");
-				con->prepare(table_name + "_loadobj", string("select * from ") + table_name + " where opid=$1");
-				con->prepare(table_name + "_loadset", string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, ") + table_name + " t where t.opid=s.obj limit $2");
+				con->prepare(table_name + "_delete", std::string("delete from ") + table_name + " where opid=$1");
+				con->prepare(table_name + "_loadobj", std::string("select * from ") + table_name + " where opid=$1");
+				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, ") + table_name + " t where t.opid=s.obj limit $2");
 
 			}
 		}	
@@ -259,7 +259,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
 	size_t dbs_desc_size = dbs_desc->get_size();	
-	string buf((char*)dbs_desc, dbs_desc_size);	
+	std::string buf((char*)dbs_desc, dbs_desc_size);	
 	cpid_t cpid;
 	{
 		result rs = txn->prepared("new_cid").exec();
@@ -274,7 +274,7 @@ void pgsql_storage::change_class(cpid_t cpid,
 								 dbs_class_descriptor* dbs_desc)
 {
 	size_t dbs_desc_size = dbs_desc->get_size();
-	string buf((char*)dbs_desc, dbs_desc_size);
+	std::string buf((char*)dbs_desc, dbs_desc_size);
 	((dbs_class_descriptor*)buf.data())->pack();
 	txn->prepared("change_class")(txn->esc_raw(buf))(cpid).exec();
 }
@@ -316,7 +316,7 @@ class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 	return desc;
 }
 
-static size_t unpack_struct(string const& prefix, field_descriptor* first, 
+static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
 							dnm_buffer& buf, result::tuple const& record, size_t n_refs)
 {
 	field_descriptor* field = first;
@@ -325,7 +325,7 @@ static size_t unpack_struct(string const& prefix, field_descriptor* first,
 		assert(!col.is_null() || field->loc.type == fld_string);
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
-			string str = col.as(string());
+			std::string str = col.as(std::string());
 			if (field->loc.n_items == 0) { 
 				char* dst = buf.append(str.size());
 				memcpy(dst, str.data(), str.size());
@@ -353,7 +353,7 @@ static size_t unpack_struct(string const& prefix, field_descriptor* first,
 					  char* dst = buf.append(2);
 					  pack2(dst, 0xFFFF);
 				  } else {
-					  string str = col.as(string());
+					  std::string str = col.as(std::string());
 					  wstring_t wstr(str.c_str());
 					  char* dst = buf.append((1 + wstr.length())*2);
 					  dst = pack2(dst, wstr.length());
@@ -416,7 +416,7 @@ static size_t unpack_struct(string const& prefix, field_descriptor* first,
 				}
 				break;
 			  case fld_structure:
-				n_refs = unpack_struct(string(field->name) + ".", field->components, buf, record, n_refs);
+				n_refs = unpack_struct(std::string(field->name) + ".", field->components, buf, record, n_refs);
 				break;
 			  default:
 				assert(false);
@@ -428,7 +428,7 @@ static size_t unpack_struct(string const& prefix, field_descriptor* first,
 	return n_refs;
 }
 
-void pgsql_storage::unpack_object(string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
+void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
 {
 	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
 	size_t hdr_offs = buf.size();
@@ -449,7 +449,7 @@ void pgsql_storage::unpack_object(string const& prefix, class_descriptor* desc, 
 		// unpack referene of set_member::obj
 		unpackref(mbr_obj_sid, mbr_obj_opid, &buf + hdr_offs + sizeof(dbs_object_header) + sizeof(dbs_reference_t)*3);
 		cpid_t cpid = GET_CID(mbr_obj_opid);
-		string table_name = get_table(lookup_class(cpid));
+		std::string table_name = get_table(lookup_class(cpid));
 		result rs = txn->prepared(table_name  + "loadset")(opid)(max_preloaded_set_members).exec();
 		load_query_result(rs, buf);
 	}
@@ -481,7 +481,7 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	unpackref(sid, opid, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
 	cpid_t cpid = GET_CID(opid);
 	class_descriptor* desc = lookup_class(cpid);
-	string table_name = get_table(desc);
+	std::string table_name = get_table(desc);
 	std::stringstream sql;
 	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
@@ -525,11 +525,11 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
 			if (field->loc.n_items == 0) {
-				stmt(string(src_bins, size));
+				stmt(std::string(src_bins, size));
 				src_bins += size;
 				size = 0;
 			} else { 
-				stmt(string(src_bins, field->loc.n_items));
+				stmt(std::string(src_bins, field->loc.n_items));
 				src_bins += field->loc.n_items;
 				size -= field->loc.n_items;
 			}
@@ -550,7 +550,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  src_bins += 2;
 				  size -= 2;
 				  if (len != 0xFFFF) { 
-					  vector<wchar_t> buf(len+1);
+					  std::vector<wchar_t> buf(len+1);
 					  for (size_t i = 0; i < len; i++) { 
 						  buf[i] = unpack2(src_bins);
 						  src_bins += 2;
@@ -567,7 +567,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_raw_binary:
 			  {
 				  size_t len = unpack4(src_bins);
-				  string blob(src_bins+4, len);
+				  std::string blob(src_bins+4, len);
 				  stmt(txn->esc_raw(blob));
 				  src_bins += 4 + len;
 				  size -= 4 + len;
@@ -686,7 +686,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		}			
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
-		invocation stmt = txn->prepared(string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
+		invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
 		assert(opid != 0);
 		stmt(opid);
 		char* src_refs = (char*)(hdr+1);
@@ -756,7 +756,7 @@ invocation pgsql_storage::statement(char const* name)
 	return txn->prepared(name);
 }
 
-ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, string const& key)
+ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, std::string const& key)
 {
 	result rs = txn->prepared(op)(index)(key).exec();
 	if (rs.empty()) { 
@@ -784,19 +784,19 @@ field_descriptor& pgsql_index::describe_components()
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_equal", string(str, len));
+	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string(str, len));
 }
 
 ref<set_member> pgsql_index::find(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_equal", string(str));
+	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string(str));
 }
 
 ref<set_member> pgsql_index::find(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	stringstream buf;			
+	std::stringstream buf;			
 	buf << key;
 	return pg->index_find(get_database(), hnd->opid, "index_equal_skey", buf.str());
 }
@@ -804,7 +804,7 @@ ref<set_member> pgsql_index::find(skey_t key) const
 ref<set_member> pgsql_index::findGE(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	stringstream buf;			
+	std::stringstream buf;			
 	buf << key;
 	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal_skey", buf.str());
 }
@@ -812,13 +812,13 @@ ref<set_member> pgsql_index::findGE(skey_t key) const
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", string(str, len));
+	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string(str, len));
 }
 	
 ref<set_member> pgsql_index::findGE(const char* str) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", string(str));
+	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string(str));
 }
 
 

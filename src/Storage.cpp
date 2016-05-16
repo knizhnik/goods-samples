@@ -10,6 +10,8 @@
 //#include "resource.h"
 //#include "interval.h"
 //#include "AppIDs.h"
+#include "pgsql_storage.h"
+
 
 #if defined(CS_SERVICE)
 #include "..\CS\CSWinService.h"
