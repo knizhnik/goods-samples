@@ -255,7 +255,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
 	result rs = txn->prepared("get_class")(cpid).exec();
-	assert(rs->size() == 1);
+	assert(rs.size() == 1);
 	binarystring desc = binarystring(rs[0][0]);
 	memcpy(buf.put(desc.size()), desc.data(), desc.size());
 }
@@ -267,7 +267,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 	cpid_t cpid;
 	{
 		result rs = txn->prepared("new_cid").exec();
-		assert(rs->size() == 1);
+		assert(rs.size() == 1);
 		cpid = rs[0][0].as(cpid_t());
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
@@ -297,7 +297,7 @@ void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
 			hdr->set_flags(0);
 			return;
 		}
-		assert(rs->size() == 1);
+		assert(rs.size() == 1);
 		opid = rs[0][0].as(opid_t());
 	}
 	load(&opid, 1, flags, buf);
@@ -504,7 +504,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 		cpid_t cpid = GET_CID(opid);
 		class_descriptor* desc = lookup_class(cpid);		
 		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
-		assert(rs->size() == 1);
+		assert(rs.size() == 1);
 		unpack_object("", desc, buf, rs[0]);
 	}
 }
@@ -725,7 +725,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	}
 	txn->commit();
 	delete txn;
-	tkn = NULL;
+	txn = NULL;
 	return true;
 }
 	
