@@ -40,7 +40,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t max_preloaded_set_members;
 
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), max_preloaded_set_members(10) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_size(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
