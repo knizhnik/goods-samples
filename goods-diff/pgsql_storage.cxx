@@ -28,11 +28,14 @@ inline std::string get_table(class_descriptor* desc)
 
 static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns)
 {
+	if (first == NULL) {
+		return;
+	}
+
 	field_descriptor* field = first;
-	
     do { 
 		if (field->loc.type == fld_structure) { 
-			get_columns(prefix + field->name, field->components, columns);
+			get_columns(prefix + field->name + ".", field->components, columns);
 		} else { 
 			columns.push_back(prefix + field->name);
 		}
@@ -91,11 +94,14 @@ static char const* map_type(field_descriptor* field)
 
 static void define_table_columns(std::string const& prefix, field_descriptor* first, std::stringstream& sql)
 {
-	field_descriptor* field = first;
+	if (first == NULL) {
+		return;
+	}
 
+	field_descriptor* field = first;
     do { 
 		if (field->loc.type == fld_structure) { 
-			define_table_columns(prefix + field->name, field->components, sql);
+			define_table_columns(prefix + field->name + ".", field->components, sql);
 		} else { 
 			sql << ",\"" << prefix << field->name << "\" " << map_type(field);
 		}
@@ -107,7 +113,16 @@ static void define_table_columns(std::string const& prefix, field_descriptor* fi
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
 	opid_buf_pos = OPID_BUF_SIZE;
-	con = new connection(std::string("user=") + login + " password=" + password + " host=" + get_host(connection_address) + " port=" + get_port(connection_address)); // database name is expected to be equal to user name
+	std::stringstream connStr;
+	connStr << "host=" << get_host(connection_address)
+			<< " port=" << get_port(connection_address);
+	if (login != NULL && *login) { 
+		connStr << " user=" << login;
+	}
+	if (password != NULL && *password) { 
+		connStr << " password=" << password;
+	}
+	con = new connection(connStr.str()); // database name is expected to be equal to user name
 	work txn(*con);	
 
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
@@ -197,6 +212,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					}
 				}													
 				sql << ")";
+				printf("%s\n", sql.str().c_str());
 				txn.exec(sql.str());			   
 
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
@@ -325,6 +341,10 @@ class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
 							dnm_buffer& buf, result::tuple const& record, size_t n_refs)
 {
+	if (first == NULL) {
+		return n_refs;
+	}
+
 	field_descriptor* field = first;
     do { 
 		result::tuple::reference col = record[prefix + field->name];
@@ -422,7 +442,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 				}
 				break;
 			  case fld_structure:
-				n_refs = unpack_struct(std::string(field->name) + ".", field->components, buf, record, n_refs);
+				n_refs = unpack_struct(prefix + field->name + ".", field->components, buf, record, n_refs);
 				break;
 			  default:
 				assert(false);
@@ -527,8 +547,11 @@ void pgsql_storage::begin_transaction(dnm_buffer& buf)
 
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
 {
-	field_descriptor* field = first;
-	
+	if (first == NULL) {
+		return size;
+	}
+
+	field_descriptor* field = first;	
     do { 
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
