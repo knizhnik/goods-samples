@@ -89,16 +89,19 @@ static char const* map_type(field_descriptor* field)
 	}
 }
 
-static void define_table_columns(string const& prefix, field_descriptor* first, stringstream& sql)
+static void define_table_columns(string const& prefix, field_descriptor* first, stringstream& sql, bool ignore_inherited)
 {
 	field_descriptor* field = first;
-
+	if (ignore_inherited) { 
+		goto NextField;
+	}
     do { 
 		if (field->loc.type == fld_structure) { 
-			define_table_columns(prefix + field->name, field->components, sql);
+			define_table_columns(prefix + field->name, field->components, sql, false);
 		} else { 
 			sql << ",\"" << prefix << field->name << "\" " << map_type(field);
 		}
+  	  NextField:
         field = (field_descriptor*)field->next;
     } while (field != first);
 }
@@ -181,7 +184,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			if (table_name == class_name) {
 				stringstream sql;
 				sql << "create table if not exists \"" << class_name << "\"(opid bigint primary key";
-				define_table_columns("", cls->fields, sql);
+				define_table_columns("", cls->fields, sql, false);
 
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
@@ -189,7 +192,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 						if (derived != cls) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 								if (base == cls) { 
-									define_table_columns("", derived->fields, sql);
+									define_table_columns("", derived->fields, sql, true);
 									break;
 								}
 							}
