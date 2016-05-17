@@ -68,7 +68,7 @@ public:
 	}
 
     virtual dbs_storage* create_dbs_storage(stid_t sid) const;
-#if PGSQL_ORM
+#if !PGSQL_ORM
     virtual void disconnected(stid_t sid);
     virtual obj_storage* create_obj_storage(stid_t sid);
 	virtual void receive_message( int message);

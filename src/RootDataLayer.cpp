@@ -11,7 +11,11 @@ CDataBase& db::GetDatabase()
 
 bool db::OpenDatabase(const char* dbs_name, char const* login, char const* password)
 {
+#if PGSQL_ORM
+	return GetDatabase().open(dbs_name, login, password);
+#else
 	return GetDatabase().Open(dbs_name);
+#endif
 }
 
 void db::CloseDatabase()

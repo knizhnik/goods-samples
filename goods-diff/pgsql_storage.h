@@ -21,7 +21,6 @@
 #include <pqxx/except>
 #include <pqxx/binarystring>
 
-using namespace std;
 using namespace pqxx;
 using namespace pqxx::prepare;
 
@@ -41,7 +40,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t max_preloaded_set_members;
 
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_size(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
@@ -144,13 +143,13 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    del_user(char const* login);
 
     class_descriptor* lookup_class(cpid_t cpid);
-    void unpack_object(string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record);
+    void unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record);
     opid_t load_query_result(result& rs, dnm_buffer& buf);
     size_t store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size);
 
     invocation statement(char const* name);
 
-    ref<set_member> index_find(database const* db, opid_t index, char const* op, string const& key);
+    ref<set_member> index_find(database const* db, opid_t index, char const* op, std::string const& key);
     void hash_put(opid_t hash, const char* name, opid_t opid);
     opid_t hash_get(opid_t hash, const char* name);
     bool hash_del(opid_t hash, const char* name);

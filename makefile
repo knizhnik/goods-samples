@@ -1,16 +1,16 @@
 DEBUG?=1
 
-#CC = g++ -std=c++11
-CC = g++
+CC = g++ -std=c++11
+#CC = g++
 SYSDEFS = -pthread
 ifeq ($(DEBUG), 1)
 OPTLEVEL = 0
 else
 OPTLEVEL = 3
 endif
-CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc -Wall
+CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc -Igoods-diff -Wall
 LD = g++
-LDFLAGS = $(SYSDEFS) -g -lz
+LDFLAGS = $(SYSDEFS) -g
 
 OBJS = pgsql_storage.o GoodsSample.o ClientStorage.o DatabaseRoot.o Dimensions.o DimensionDataLayer.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
 
@@ -20,7 +20,7 @@ INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/Dimensio
 all: GoodsSample
 
 GoodsSample: $(OBJS)
-	$(LD) $(LDFLAGS) -o GoodsSample $(OBJS) ../goods/lib/libclient.a
+	$(LD) $(LDFLAGS) -o GoodsSample $(OBJS) ../goods/lib/libclient.a -lpqxx -lz
 
 pgsql_storage.o: goods-diff/pgsql_storage.cxx goods-diff/pgsql_storage.h
 	$(CC) $(CCFLAGS) goods-diff/pgsql_storage.cxx
