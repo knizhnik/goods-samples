@@ -40,9 +40,9 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t max_preloaded_set_members;
 
     class autocommit {
+    public:
 	work txn;
 	pgsql_storage* sto;
-    public:
 	autocommit(pgsql_storage* s) : txn(*s->con), sto(s) {
 	    sto->txn = &txn;
 	}
