@@ -39,19 +39,33 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
 
-    class autocommit {
+  public:
+    class pgsql_session {
     public:
-	work txn;
 	pgsql_storage* sto;
-	autocommit(pgsql_storage* s) : txn(*s->con), sto(s) {
-	    sto->txn = &txn;
+	bool autocommit;
+
+	pgsql_session(pgsql_storage* s) : sto(s), autocommit(false) {
+	    if (sto->txn == NULL) { 
+		sto->txn = new work(*s->con);
+		autocommit = true;
+	    }
 	}
-	~autocommit() { 
-	    sto->txn = NULL;
+	
+	void commit() { 
+	    if (autocommit) { 
+		sto->txn->commit();
+	    }
+	}
+
+	~pgsql_session() { 
+	    if (autocommit) { 
+		delete sto->txn;
+		sto->txn = NULL;
+	    }
 	}
     };
 
-  public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
