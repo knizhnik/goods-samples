@@ -7,7 +7,7 @@ REGISTER(CPackageList, set_owner, pessimistic_scheme);
 
 CPackageList::CPackageList(class_descriptor& desc, ref<object> const& owner)
 	: set_owner(desc, owner)
-	, m_IndexByCode(B_tree::create(this))
+	, m_IndexByCode(DbIndex::create(this))
 {
 }
 

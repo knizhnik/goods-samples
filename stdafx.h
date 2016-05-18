@@ -52,6 +52,14 @@ typedef unsigned DWORD;
 #include "goods.h"
 #include "dbscls.h"
 
+#if PGSQL_ORM
+#include "pgsql_storage.h"
+typedef pgsql_index DbIndex;
+#else
+typedef B_tree DbIndex;
+#endif
+
+
 #define NO_USE_GOODS_TL_CACHE
 #include "GoodsTLCache.h"
 
