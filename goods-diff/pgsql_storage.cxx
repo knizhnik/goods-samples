@@ -142,7 +142,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	work txn(*con);	
 
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
-	txn.exec("create table if not exists classes(cpid integer primary key, descriptor bytea)");
+	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, obj bigint, key bytea, skey bigint)");
 	txn.exec("create table if not exists root_class(cpid integer)");
 
@@ -161,7 +161,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("add_root", "insert into root_class values ($1)"); 
 	con->prepare("set_root", "update root_class set cpid=$1"); 
 	con->prepare("get_class", "select descriptor from classes where cpid=$1"); 
-	con->prepare("put_class", "insert into classes (cpid,descriptor) values ($1,$2)"); 
+	con->prepare("put_class", "insert into classes (cpid,name,descriptor) values ($1,$2,$3)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
 	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
 	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 limit 1");
@@ -299,6 +299,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
 	size_t dbs_desc_size = dbs_desc->get_size();	
+	std::string name(dbs_desc->name());
 	std::string buf((char*)dbs_desc, dbs_desc_size);	
 	cpid_t cpid;
 	{
@@ -307,7 +308,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 		cpid = rs[0][0].as(cpid_t());
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
-	txn->prepared("put_class")(cpid)(txn->esc_raw(buf)).exec();	
+	txn->prepared("put_class")(cpid)(name)(txn->esc_raw(buf)).exec();	
 	return cpid;
 }
 
@@ -528,6 +529,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 	if (txn == NULL) {
 		autocommit ac(this);
 		load(opp, n_objects, flags, buf);
+		ac.txn.commit();
 		return;
 	}
 	for (int i = 0; i < n_objects; i++) { 
