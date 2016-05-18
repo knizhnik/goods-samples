@@ -7,8 +7,8 @@ REGISTER(CWarehouseReceiptList, set_owner, pessimistic_scheme);
 
 CWarehouseReceiptList::CWarehouseReceiptList(class_descriptor& desc, ref<object> const& obj)
 	: set_owner(desc, obj)
-	, m_IndexByNumber(B_tree::create(this))
-	, m_IndexByDate(B_tree::create(this))
+	, m_IndexByNumber(DbIndex::create(this))
+	, m_IndexByDate(DbIndex::create(this))
 {
 }
 

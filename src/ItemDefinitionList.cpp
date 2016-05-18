@@ -8,8 +8,8 @@ REGISTER(CItemDefinitionList, set_owner, pessimistic_scheme);
 
 CItemDefinitionList::CItemDefinitionList(class_descriptor& desc, ref<object> const& owner)
 	: set_owner(desc, owner)
-	, m_IndexByCode(B_tree::create(this))
-	, m_IndexByDescription(B_tree::create(this))
+	, m_IndexByCode(DbIndex::create(this))
+	, m_IndexByDescription(DbIndex::create(this))
 {
 }
 
