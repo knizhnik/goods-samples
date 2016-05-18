@@ -186,8 +186,12 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
     virtual void remove(ref<set_member> mbr);
     virtual void clear();
 
+    static ref<pgsql_index> create(anyref obj) {
+        return NEW pgsql_index(obj);
+    }
+
     METACLASS_DECLARATIONS(pgsql_index, B_tree);
-    pgsql_index(anyref const& obj, int varying=0) : B_tree(self_class, obj, varying) {}
+    pgsql_index(anyref const& obj) : B_tree(self_class, obj, 0) {}
 };
 	
 class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary { 
