@@ -2,13 +2,14 @@ DEBUG?=1
 
 CC = g++ -std=c++11
 #CC = g++
-SYSDEFS = -pthread
+SYSDEFS = -pthread -DGOODS_SUPPORT_EXCEPTIONS -DDEBUG_LEVEL=DEBUG_TRACE -DPTHREADS
+
 ifeq ($(DEBUG), 1)
 OPTLEVEL = 0
 else
 OPTLEVEL = 3
 endif
-CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc -Igoods-diff -Wall
+CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -DPGSQL_ORM=1 -I. -I../goods/inc -I../goods/src -Iinc -Igoods-diff -Wall
 LD = g++
 LDFLAGS = $(SYSDEFS) -g
 

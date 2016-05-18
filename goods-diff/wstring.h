@@ -160,20 +160,6 @@ inline size_t mbstowcs(wchar_t *pwcs, const char *s, size_t n)
 
 #endif
 
-#ifndef _WIN32
-#include <alloca.h>
-inline wchar_t* fgetws(wchar_t *s, int n, FILE *stream)
-{
-    char* p = (char*)alloca(n);
-    *p = 0;
-    if (fgets(p, n, stream) == NULL) { 
-        return NULL;
-    }
-    mbstowcs(s, p, n);
-    return s;
-}
-#endif
-
 BEGIN_GOODS_NAMESPACE
 
 class wstring_t { 

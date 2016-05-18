@@ -39,6 +39,18 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
 
+    class autocommit {
+	work txn;
+	pgsql_storage* sto;
+    public:
+	autocommit(pgsql_storage* s) : txn(*s->con), sto(s) {
+	    sto->txn = &txn;
+	}
+	~autocommit() { 
+	    sto->txn = NULL;
+	}
+    };
+
   public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	

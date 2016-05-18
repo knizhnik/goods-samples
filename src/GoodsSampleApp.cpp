@@ -39,7 +39,6 @@ static db::db_filler::FillDatabaseData CreateFillData()
 void CGoodsSampleApp::run()
 {
 	transaction_manager::set_isolation_level(PER_THREAD_TRANSACTION);
-	task::initialize(task::normal_stack);
 
 	// -- ensure database structure creation
 	auto db_root = db::GetDatabaseRoot();

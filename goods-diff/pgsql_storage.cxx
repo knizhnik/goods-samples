@@ -1,3 +1,4 @@
+#include <set>
 #include "pgsql_storage.h"
 
 
@@ -12,7 +13,6 @@
 #define GET_CID(x) ((x) % MAX_CLASSES)
 #define GET_OID(x) ((x) / MAX_CLASSES)
 #define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
-#define ROOT_OID 0
 
 //
 // We store all inherited classes in one table,
@@ -26,7 +26,14 @@ inline std::string get_table(class_descriptor* desc)
 	return std::string(desc->name);
 }
 
-static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns)
+
+inline int get_inheritance_depth(class_descriptor* cls) {
+	int depth;
+	for (depth = 0; (cls = cls->base_class) != NULL; depth++);
+	return depth;
+}
+
+static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns, int inheritance_depth)
 {
 	if (first == NULL) {
 		return;
@@ -35,7 +42,7 @@ static void get_columns(std::string const& prefix, field_descriptor* first, std:
 	field_descriptor* field = first;
     do { 
 		if (field->loc.type == fld_structure) { 
-			get_columns(prefix + field->name + ".", field->components, columns);
+			get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else { 
 			columns.push_back(prefix + field->name);
 		}
@@ -92,7 +99,7 @@ static char const* map_type(field_descriptor* field)
 	}
 }
 
-static void define_table_columns(std::string const& prefix, field_descriptor* first, stringstream& sql, bool ignore_inherited)
+static void define_table_columns(std::set<std::string>& columns, std::string const& prefix, field_descriptor* first, std::stringstream& sql, bool ignore_inherited)
 {
 	if (first == NULL) {
 		return;
@@ -104,16 +111,21 @@ static void define_table_columns(std::string const& prefix, field_descriptor* fi
 	}
     do { 
 		if (field->loc.type == fld_structure) { 
-			define_table_columns(prefix + field->name, field->components, sql, false);
-		} else { 
+			define_table_columns(columns, prefix + field->name, field->components, sql, false);
+		} else if (columns.find(field->name) == columns.end()) { 
+			columns.insert(field->name);
 			sql << ",\"" << prefix << field->name << "\" " << map_type(field);
 		}
   	  NextField:
         field = (field_descriptor*)field->next;
     } while (field != first);
 }
-	
 
+inline bool is_btree(std::string name)
+{
+	return name == "B_tree" || name == "SB_tree";
+}
+	
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
 	opid_buf_pos = OPID_BUF_SIZE;
@@ -132,7 +144,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
 	txn.exec("create table if not exists classes(cpid integer primary key, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, obj bigint, key bytea, skey bigint)");
-	txn.exec("create table if not exists db_root(root bigint)");
+	txn.exec("create table if not exists root_class(cpid integer)");
 
 	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
 	txn.exec("create index if not exists dict_owner_index on dict_entry(owner)");
@@ -143,12 +155,12 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
 
 		
-	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1"); 
+	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1)"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
-	con->prepare("get_root", "select root from db_root"); 
-	con->prepare("add_root", "insert into db_root values ($1)"); 
-	con->prepare("set_root", "update db_root set root=$1"); 
-	con->prepare("get_class", "select descriptor from classes where cpid=?"); 
+	con->prepare("get_root", "select cpid from root_class"); 
+	con->prepare("add_root", "insert into root_class values ($1)"); 
+	con->prepare("set_root", "update root_class set cpid=$1"); 
+	con->prepare("get_class", "select descriptor from classes where cpid=$1"); 
 	con->prepare("put_class", "insert into classes (cpid,descriptor) values ($1,$2)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
 	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
@@ -167,10 +179,13 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
+			if (cls == &object::self_class) { 
+				continue;
+			}
 			std::vector<std::string> columns;
 			std::string table_name = get_table(cls);
 			std::string class_name(cls->name);
-			get_columns("", cls->fields, columns);
+			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
 			if (cls->base_class == &set_member::self_class) { 
 				columns.push_back("skey");
 			}
@@ -189,7 +204,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			}
 			{
 				std::stringstream sql;			
-				sql << "update " << class_name << " set ";
+				sql << "update \"" << table_name << "\" set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
 					sql << '\"' << columns[i] << "\"=$" << (i+2);
@@ -200,15 +215,16 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			if (table_name == class_name) {
 				std::stringstream sql;
 				sql << "create table if not exists \"" << class_name << "\"(opid bigint primary key";
-				define_table_columns("", cls->fields, sql, false);
+				std::set<std::string> columns;
+				define_table_columns(columns, "", cls->fields, sql, false);
 
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
 					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-						if (derived != cls) {
+						if (derived != cls && !is_btree(derived->name)) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 								if (base == cls) { 
-									define_table_columns("", derived->fields, sql, true);
+									define_table_columns(columns, "", derived->fields, sql, true);
 									break;
 								}
 							}
@@ -307,19 +323,6 @@ void pgsql_storage::change_class(cpid_t cpid,
 																				 
 void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
 {
-	if (opid == ROOT_OPID) { 
-		result rs = txn->prepared("get_root").exec();
-		if (rs.empty()) { 
-			dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header));
-			hdr->set_opid(MAKE_OPID(RAW_CPID, ROOT_OID));		
-			hdr->set_cpid(RAW_CPID);
-			hdr->set_sid(id);
-			hdr->set_flags(0);
-			return;
-		}
-		assert(rs.size() == 1);
-		opid = rs[0][0].as(opid_t());
-	}
 	load(&opid, 1, flags, buf);
 }
 
@@ -519,13 +522,31 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	next_mbr = load_query_result(rs, buf);
 }
 
-
 void pgsql_storage::load(opid_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
-	for (int i = 1; i < n_objects; i++) { 
+	if (txn == NULL) {
+		autocommit ac(this);
+		load(opp, n_objects, flags, buf);
+		return;
+	}
+	for (int i = 0; i < n_objects; i++) { 
 		opid_t opid = opp[i];
 		cpid_t cpid = GET_CID(opid);
+		if (opid == ROOT_OPID) { 
+			result rs = txn->prepared("get_root").exec();
+			if (rs.empty()) { 
+				dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header));
+				hdr->set_opid(ROOT_OPID);		
+				hdr->set_cpid(RAW_CPID);
+				hdr->set_sid(id);
+				hdr->set_flags(0);
+				hdr->set_size(0);
+				continue;
+			}
+			assert(rs.size() == 1);
+			cpid = (cpid_t)rs[0][0].as(int());
+		}
 		class_descriptor* desc = lookup_class(cpid);		
 		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
 		assert(rs.size() == 1);
@@ -714,17 +735,16 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	char* ptr = &buf;
 	char* end = ptr + buf.size();
 	while (ptr < end) { 
-		dbs_object_header* hdr = (dbs_object_header*)&buf;
+		dbs_object_header* hdr = (dbs_object_header*)ptr;
 		opid_t opid = hdr->get_opid();
 		cpid_t cpid = hdr->get_cpid();		
 		assert(cpid != RAW_CPID);
-		if (GET_OID(opid) == ROOT_OID) { 
-			opid = MAKE_OPID(cpid, ROOT_OID);
+		if (opid == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
-				txn->prepared("add_root")(opid).exec();
+				txn->prepared("add_root")(cpid).exec();
 			} else { 
-				txn->prepared("set_root")(opid).exec();
+				txn->prepared("set_root")(cpid).exec();
 			}
 		}			
 		int flags = hdr->get_flags();
@@ -749,6 +769,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 			stmt(skey);
 		}
 		stmt.exec();
+		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
 	txn->commit();
 	delete txn;

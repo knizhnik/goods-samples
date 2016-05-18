@@ -20,8 +20,6 @@
 // Windows Header Files:
 
 
-#define PGSQL_ORM 1
-
 #include <stdio.h>
 
 

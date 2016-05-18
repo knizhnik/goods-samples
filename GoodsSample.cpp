@@ -28,6 +28,7 @@ int main(int argc, char* argv[])
 		console::output("Invalid arguments...\n");
 		return EXIT_FAILURE;
 	}
+	task::initialize(task::normal_stack);
 
 	std::string database_name = to_string(argv[1]);
 	std::string login = argc > 2 ? to_string(argv[2]) : "";
