@@ -29,6 +29,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	task::initialize(task::normal_stack);
+	setlocale(LC_CTYPE, ["ru_RU.utf8"); 
 
 	std::string database_name = to_string(argv[1]);
 	std::string login = argc > 2 ? to_string(argv[2]) : "";
@@ -42,8 +43,9 @@ int main(int argc, char* argv[])
 
 	app.run();
 	app.close();
+#ifdef _WIN32
 	system("pause");
-	
+#endif	
 	return EXIT_SUCCESS;
 }
 

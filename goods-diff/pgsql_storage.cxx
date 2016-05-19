@@ -14,16 +14,23 @@
 #define GET_OID(x) ((x) / MAX_CLASSES)
 #define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
 
+#define MAX_KEY_SIZE 4096
+
+class_descriptor* get_root_class(class_descriptor* desc)
+{
+	while (desc->base_class != &object::self_class) { 
+		desc = desc->base_class;
+	}
+	return desc;
+}
+
 //
 // We store all inherited classes in one table,
 // so we need to find table for top class
 //
 inline std::string get_table(class_descriptor* desc)
 {
-	while (desc->base_class != &object::self_class) { 
-		desc = desc->base_class;
-	}
-	return std::string(desc->name);
+	return std::string(get_root_class(desc)->name);
 }
 
 
@@ -183,9 +190,13 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				continue;
 			}
 			std::vector<std::string> columns;
-			std::string table_name = get_table(cls);
+			class_descriptor* root_class = get_root_class(cls);
+			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
 			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
+			if (root_class == &set_member::self_class) { 
+				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
+			}
 			if (cls->base_class == &set_member::self_class) { 
 				columns.push_back("skey");
 			}
@@ -359,17 +370,33 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 		assert(!col.is_null() || field->loc.type == fld_string);
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
-			std::string str = col.as(std::string());
-			if (field->loc.n_items == 0) { 
-				char* dst = buf.append(str.size());
-				memcpy(dst, str.data(), str.size());
-			} else { 
-				char* dst = buf.append(field->loc.n_items);
-				if ((size_t)field->loc.n_items <= str.size()) { 
-					memcpy(dst, str.data(), field->loc.n_items);
+			if (field->flags & fld_binary) {
+				binarystring blob(col);
+				if (field->loc.n_items == 0) { 
+					char* dst = buf.append(blob.size());
+					memcpy(dst, blob.data(), blob.size());
 				} else { 
+					char* dst = buf.append(field->loc.n_items);
+					if ((size_t)field->loc.n_items <= blob.size()) { 
+						memcpy(dst, blob.data(), field->loc.n_items);
+					} else { 
+						memcpy(dst, blob.data(), blob.size());
+						memset(dst + blob.size(), 0, field->loc.n_items - blob.size());
+					}
+				}
+			} else { 
+				std::string str = col.as(std::string());
+				if (field->loc.n_items == 0) { 
+					char* dst = buf.append(str.size());
 					memcpy(dst, str.data(), str.size());
-					memset(dst + str.size(), 0, field->loc.n_items - str.size());
+				} else { 
+					char* dst = buf.append(field->loc.n_items);
+					if ((size_t)field->loc.n_items <= str.size()) { 
+						memcpy(dst, str.data(), field->loc.n_items);
+					} else { 
+						memcpy(dst, str.data(), str.size());
+						memset(dst + str.size(), 0, field->loc.n_items - str.size());
+					}
 				}
 			}
 		} else {
@@ -520,7 +547,7 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	std::stringstream sql;
 	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,s.skey as mbr_skey,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
-	buf.cut(buf.size()); // reset buffer
+	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
 	session.commit();
 }
@@ -565,10 +592,10 @@ void pgsql_storage::throw_object(opid_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
+	buf.put(0);
 	assert(txn == NULL && con != NULL);
 	txn = new work(*con);
 }
-
 
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
 {
@@ -581,11 +608,14 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
 			if (field->loc.n_items == 0) {
-				stmt(std::string(src_bins, size));
+				std::string val(src_bins, size);
+				assert((field->flags & fld_binary) != 0 || val[0] >= 0);
+				stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
 				src_bins += size;
 				size = 0;
 			} else { 
-				stmt(std::string(src_bins, field->loc.n_items));
+				std::string val(src_bins, field->loc.n_items);
+				stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
 				src_bins += field->loc.n_items;
 				size -= field->loc.n_items;
 			}
@@ -615,6 +645,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					  buf[len] = 0;
 					  wstring_t wstr(&buf[0]);
 					  char* chars = wstr.getChars();
+					  assert(chars != NULL);
 					  stmt(chars);
 					  delete[] chars;
 				  } else {
@@ -675,6 +706,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					src_bins += 4;
 					size -= 4;
 					break;
+				  case 8:
 				  {
 					  nat8 ival;
 					  src_bins = unpack8((char*)&ival, src_bins);
@@ -824,7 +856,7 @@ invocation pgsql_storage::statement(char const* name)
 ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, std::string const& key)
 {
 	pgsql_session session(this);
-	result rs = txn->prepared(op)(index)(key).exec();
+	result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 	size_t size = rs.size();
 	if (size == 0) { 
 		return NULL;
@@ -892,8 +924,15 @@ ref<set_member> pgsql_index::findGE(const char* str) const
 
 void pgsql_index::insert(ref<set_member> mbr)
 {
-	ref<set_member> next = (&mbr->cls != &set_member::self_class)
-		? findGE(mbr->get_key()) : findGE(mbr->key);
+	ref<set_member> next;
+	if (&mbr->cls != &set_member::self_class) {
+		next = findGE(mbr->get_key());
+	} else { 
+		char key[MAX_KEY_SIZE];
+		size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
+		assert(keySize < MAX_KEY_SIZE);
+		next = findGE(key, keySize, 0); // skey is not used here
+	}
 	if (next.is_nil()) { 
 		put_last(mbr); 
 	} else {

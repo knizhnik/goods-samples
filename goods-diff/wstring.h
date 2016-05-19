@@ -516,6 +516,9 @@ class wstring_t {
 			return NULL;
 
 		size_t size = wcstombs(NULL, chars, 0);
+		if (static_cast<size_t>(-1) == size) {
+		    return NULL;
+		}
 		char* p = new char[size + 1];
 		if (static_cast<size_t>(-1) == wcstombs(p, chars, size+1))
 		{
