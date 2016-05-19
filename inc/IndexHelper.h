@@ -21,7 +21,7 @@ namespace Index
 		{
 			const auto pesistent_key = CreatePersistentKey(key);
 			const ref<set_member> found_member = index->findGE(pesistent_key.c_str());
-			if (found_member->compare(pesistent_key.c_str()) != 0)
+			if (found_member.is_nil() || found_member->compare(pesistent_key.c_str()) != 0)
 			{
 				return nullptr;
 			}

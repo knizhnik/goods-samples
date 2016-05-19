@@ -749,7 +749,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		}			
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
-		invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_update) ? "_update" : "_insert"));
+		invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 		assert(opid != 0);
 		stmt(opid);
 		char* src_refs = (char*)(hdr+1);
