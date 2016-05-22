@@ -18,10 +18,10 @@ BEGIN
   lfd := lo_open(l_oid,131072); --0x00020000 write mode
   lsize := lowrite(lfd,buffer);
   PERFORM lo_close(lfd);
-  PERFORM lo_export(l_oid,'pg_blob/' + oid);
+  PERFORM lo_export(l_oid,'pg_blob/' || oid);
   PERFORM lo_unlink(l_oid);
 END;
-$$ LANGUAGE PLPGSQL SECURITY DEFINER search_path = @extschema@, pg_temp;
+$$ LANGUAGE PLPGSQL SECURITY DEFINER SET search_path = @extschema@, pg_temp;
 
 
 CREATE OR REPLACE FUNCTION readEfile(oid bigint, p_result OUT bytea)
@@ -31,7 +31,7 @@ DECLARE
   r record;
 BEGIN
   p_result := '';
-  SELECT lo_import('pg_blob/' + oid) INTO l_oid;
+  SELECT lo_import('pg_blob/' || oid) INTO l_oid;
   FOR r IN ( SELECT data 
              FROM pg_largeobject 
              WHERE loid = l_oid 
@@ -41,4 +41,4 @@ BEGIN
   PERFORM lo_unlink(l_oid);
 END;
 $$
-LANGUAGE PLPGSQL SECURITY DEFINERSET search_path = @extschema@, pg_temp;
+LANGUAGE PLPGSQL SECURITY DEFINER SET search_path = @extschema@, pg_temp;
