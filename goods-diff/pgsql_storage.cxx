@@ -148,6 +148,8 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con = new connection(connStr.str()); // database name is expected to be equal to user name
 	work txn(*con);	
 
+	txn.exec("create extension if not exists external_file");
+
 	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, owner bigint, obj bigint, key bytea, skey bigint)");
@@ -183,7 +185,10 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("hash_del", "delete from dict_entry where owner=$1 and name=$2 and value=$3");
 	con->prepare("hash_drop", "delete from dict_entry where owner=$1");
 	con->prepare("hash_size", "select count(*) from dict_entry where owner=$1");
-				 
+				
+	con->prepare("write_file", "select writeEfile($1, $2)");
+	con->prepare("read_file", "select readEfile($1)");
+
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
 			if (cls == &object::self_class) { 
@@ -499,8 +504,15 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	hdr->set_sid(0);
 	hdr->set_flags(0);
                 
-	size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0);
-	assert(n_refs == desc->n_fixed_references);
+	if (desc == &ExternalBlob::self_class) { 
+		result rs = txn->prepared("read_file");
+		assert(rs.size() == 1);
+		binarystring blob(rs[0][0]);
+		memcpy(buf.append(blob.size()), blob.data(), blob.size());
+	} else { 		
+		size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0);
+		assert(n_refs == desc->n_fixed_references);
+	}
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
 	hdr->set_size(buf.size() - hdr_offs - sizeof(dbs_object_header));
 
@@ -781,24 +793,30 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		}			
 		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
-		invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 		assert(opid != 0);
-		stmt(opid);
 		char* src_refs = (char*)(hdr+1);
 		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
-		size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
-		assert(left == 0);
-		if (desc->base_class == &set_member::self_class) { 
-			int64_t skey = 0; 
-			switch (hdr->get_size() - sizeof(dbs_reference_t)*4) { 
-			  case 4:
-				skey = unpack4((char*)(hdr+1) + sizeof(dbs_reference_t)*4);
-				break;
-			  case 8:
-				unpack8((char*)&skey, (char*)(hdr+1) + sizeof(dbs_reference_t)*4);
-				break;
+		if (desc == &ExternalBlob::self_class) { 
+			std::string blob(src_bins, hdr->get_size());
+			txn->prepared("store_file")(opid)(txn->esc_raw(blob));
+		} else { 	
+			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
+			stmt(opid);
+			
+			size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
+			assert(left == 0);
+			if (desc->base_class == &set_member::self_class) { 
+				int64_t skey = 0; 
+				switch (hdr->get_size() - sizeof(dbs_reference_t)*4) { 
+				  case 4:
+					skey = unpack4((char*)(hdr+1) + sizeof(dbs_reference_t)*4);
+					break;
+				  case 8:
+					unpack8((char*)&skey, (char*)(hdr+1) + sizeof(dbs_reference_t)*4);
+					break;
+				}
+				stmt(skey);
 			}
-			stmt(skey);
 		}
 		stmt.exec();
 		ptr = (char*)(hdr + 1) + hdr->get_size();
