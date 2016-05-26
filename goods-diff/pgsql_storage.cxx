@@ -89,7 +89,7 @@ static char const* map_type(field_descriptor* field)
 	case fld_string:
 		return "text";
 	case fld_reference:
-		return "bigint";
+		return "objref";
 	case fld_raw_binary:
 		return "bytea";
 	case fld_real:
@@ -146,13 +146,19 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		connStr << " password=" << password;
 	}
 	con = new connection(connStr.str()); // database name is expected to be equal to user name
+	
+	try {
+		work txn(*con);	
+		txn.exec("create domain objref as bigint");
+	} catch (pqxx_exception const&x) {} // ignore error if domain alreqady exists
+
 	work txn(*con);	
 
 	txn.exec("create extension if not exists external_file");
 
-	txn.exec("create table if not exists dict_entry(owner bigint, key text, value bigint)");
+	txn.exec("create table if not exists dict_entry(owner objref, key text, value objref)");
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
-	txn.exec("create table if not exists set_member(opid bigint primary key, next bigint, prev bigint, owner bigint, obj bigint, key bytea, skey bigint)");
+	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea, skey bigint)");
 	txn.exec("create table if not exists root_class(cpid integer)");
 
 	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
@@ -230,7 +236,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			}
 			if (table_name == class_name) {
 				std::stringstream sql;
-				sql << "create table if not exists \"" << class_name << "\"(opid bigint primary key";
+				sql << "create table if not exists \"" << class_name << "\"(opid objref primary key";
 				std::set<std::string> columns;
 				define_table_columns(columns, "", cls->fields, sql, false);
 
@@ -505,7 +511,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	hdr->set_flags(0);
                 
 	if (desc == &ExternalBlob::self_class) { 
-		result rs = txn->prepared("read_file");
+		result rs = txn->prepared("read_file")(opid).exec();
 		assert(rs.size() == 1);
 		binarystring blob(rs[0][0]);
 		memcpy(buf.append(blob.size()), blob.data(), blob.size());
@@ -798,7 +804,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
 		if (desc == &ExternalBlob::self_class) { 
 			std::string blob(src_bins, hdr->get_size());
-			txn->prepared("store_file")(opid)(txn->esc_raw(blob));
+			txn->prepared("write_file")(opid)(txn->esc_raw(blob)).exec();
 		} else { 	
 			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 			stmt(opid);
@@ -817,8 +823,8 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 				}
 				stmt(skey);
 			}
+			stmt.exec();
 		}
-		stmt.exec();
 		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
 	txn->commit();

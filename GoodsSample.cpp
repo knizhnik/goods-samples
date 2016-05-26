@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	task::initialize(task::normal_stack);
-	setlocale(LC_CTYPE, ["ru_RU.utf8"); 
+	setlocale(LC_CTYPE, "ru_RU.utf8"); 
 
 	std::string database_name = to_string(argv[1]);
 	std::string login = argc > 2 ? to_string(argv[2]) : "";
