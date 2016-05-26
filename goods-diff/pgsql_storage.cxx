@@ -163,6 +163,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
 	txn.exec("create index if not exists dict_owner_index on dict_entry(owner)");
+	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
 	txn.exec("create index if not exists set_member_skey on set_member(skey)");
 
@@ -183,7 +184,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("index_equal_skey", "select * from set_member m where owner=$1 and skey=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.skey=$2)");
 	con->prepare("index_greater_or_equal_skey", "select * from set_member where owner=$1 and skey>=$2 limit 1");
 	con->prepare("index_drop", "delete from set_member where owner=$1");
-	con->prepare("index_del", "delete from set_member where owner=$1 and oid=$2");
+	con->prepare("index_del", "delete from set_member where owner=$1 and opid=$2");
 
 	con->prepare("hash_put", "insert into dict_entry (owner,name,value) values ($1,$2,$3)");
 	con->prepare("hash_get", "select value from dict_entry where owner=$1 and name=$2");
