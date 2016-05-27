@@ -30,7 +30,7 @@ const size_t OPID_BUF_SIZE = 64;
 //
 // Class attributes flag, which should be set using REGISTER_EX macro
 // for classes which should be considered as roots of inheritance hierarchy.
-// All classes derived directly from such class will be mapped to separate table
+// Separate table will be created for such class (shared by all inherited classes)
 //
 const int CLASS_HIERARCHY_ROOT = 2; 
 
