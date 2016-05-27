@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DbObject.h"
+
 class CDimensions : public object
 {
 public:

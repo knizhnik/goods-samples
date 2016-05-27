@@ -1,19 +1,31 @@
+
 #pragma once
+
+#include "DbObject.h"
 
 class CDimensions;
 class CItemDefinition;
 class CPackage;
 class CWarehouseReceipt;
 
-class CWarehouseItem : public object
+enum class WarehouseItemIndexMemberEnum
+{
+	Main,
+	WarehouseReceiptList,
+	IndexByDate
+};
+
+class CWarehouseItem : public CDbObject
 {
 public:
-	METACLASS_DECLARATIONS(CWarehouseItem, object);
+	METACLASS_DECLARATIONS(CWarehouseItem, CDbObject);
 
 	static ref<CWarehouseItem> create()
 	{
 		return NEW CWarehouseItem(self_class);
 	}
+
+	virtual std::string GetHashCode() const override;
 
 	std::wstring GetDescription() const
 	{
@@ -50,11 +62,15 @@ public:
 		return m_WarehouseReceipt;
 	}
 
-	ref<set_member> GetWarehouseReceiptMember() const
+	ref<set_member> GetIndexMember(WarehouseItemIndexMemberEnum member_on) const
 	{
-		return m_WarehouseReceiptItemsMember;
+		return m_IndexMembers->getat(static_cast<nat4>(member_on));
 	}
 
+	ref<Blob> GetExtraData() const
+	{
+		return m_ExtraData;
+	}
 
 	void SetDescription(const wchar_t* description) 
 	{
@@ -91,10 +107,12 @@ public:
 		m_WarehouseReceipt = warehouse_receipt;
 	}
 
-	void SetWarehouseReceiptMember(ref<set_member> const& member)
+	void SetIndexMember(WarehouseItemIndexMemberEnum member_on, ref<set_member> const& member)
 	{
-		m_WarehouseReceiptItemsMember = member;
+		modify(m_IndexMembers)->putat(static_cast<nat4>(member_on), member);
 	}
+
+	void SetExtraData(std::vector<char> const& extra_data);
 
 protected:
 	CWarehouseItem(class_descriptor& desc);
@@ -107,5 +125,6 @@ private:
 	double					m_Weight;
 	wstring_t				m_LocationCode;
 	ref<CWarehouseReceipt>	m_WarehouseReceipt;
-	ref<set_member>			m_WarehouseReceiptItemsMember;
+	ref<ArrayOfObject>		m_IndexMembers;
+	ref<Blob>				m_ExtraData;
 };

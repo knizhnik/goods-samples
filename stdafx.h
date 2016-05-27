@@ -57,6 +57,7 @@ typedef unsigned DWORD;
 typedef pgsql_index DbIndex;
 #else
 typedef B_tree DbIndex;
+typedef SB_tree16 DbIndex16;
 #endif
 
 
@@ -66,5 +67,7 @@ typedef B_tree DbIndex;
 //#include "dbgoutput.h"
 
 #include <string>
+#include <vector>
 
 #endif
+

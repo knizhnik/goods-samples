@@ -1,6 +1,7 @@
 
 #include "stdafx.h"
 #include "DimensionDataLayer.h"
+#include "GlobalIndexController.h"
 #include "ItemDefinitionDataLayer.h"
 #include "ItemDefinitionList.h"
 #include "IndexHelper.h"
@@ -40,6 +41,8 @@ void db::item_def::Save(ref<CItemDefinition> const& item_def)
 	
 	auto insert_member = Index::CreateMember(item_def);
 	list->insert(insert_member);
+
+	db::global_index::InsertObject(item_def);
 }
 
 size_t db::item_def::GetCount()

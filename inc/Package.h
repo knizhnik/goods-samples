@@ -1,17 +1,21 @@
 
 #pragma once
 
+#include "DbObject.h"
+
 class CDimensions;
 
-class CPackage : public object
+class CPackage : public CDbObject
 {
 public:
-	METACLASS_DECLARATIONS(CPackage, object);
+	METACLASS_DECLARATIONS(CPackage, CDbObject);
 
 	static ref<CPackage> create()
 	{
 		return NEW CPackage(self_class);
 	}
+
+	virtual std::string GetHashCode() const override;
 
 	std::wstring GetCode() const
 	{
@@ -51,3 +55,4 @@ private:
 	wstring_t			m_Description;	
 	ref<CDimensions>	m_Dimensions;
 };
+

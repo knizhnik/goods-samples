@@ -14,3 +14,4 @@ namespace db
 	void CloseDatabase();
 
 }	// namespace db
+

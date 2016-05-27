@@ -41,7 +41,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>.\;.\inc;D:\Projects\MAIN-BRANCHES\MAIN-RAID-BUG\Goods\inc;D:\Projects\MAIN-BRANCHES\MAIN-RAID-BUG\Goods\src;$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
+    <IncludePath>.\;.\inc;.\goods-diff;D:\Projects\MAIN-BRANCHES\MAIN-RAID-BUG\Goods\inc;D:\Projects\MAIN-BRANCHES\MAIN-RAID-BUG\Goods\src;$(VC_IncludePath);$(WindowsSDK_IncludePath)</IncludePath>
     <SourcePath>$(VC_SourcePath);</SourcePath>
     <LibraryPath>D:\Projects\MAIN-BRANCHES\MAIN-RAID-BUG\Goods\GoodsCli\Win32\Debug;$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);</LibraryPath>
   </PropertyGroup>
@@ -86,11 +86,19 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="inc\ActionTimeStamp.h" />
+    <ClInclude Include="inc\CustomField.h" />
+    <ClInclude Include="inc\CustomFieldController.h" />
     <ClInclude Include="inc\DatabaseRoot.h" />
+    <ClInclude Include="inc\DbObject.h" />
     <ClInclude Include="inc\DimensionDataLayer.h" />
     <ClInclude Include="inc\Dimensions.h" />
     <ClInclude Include="inc\FillDatabase.h" />
+    <ClInclude Include="inc\GlobalIndex.h" />
+    <ClInclude Include="inc\GlobalIndexController.h" />
+    <ClInclude Include="inc\goodsex.h" />
     <ClInclude Include="inc\GoodsSampleApp.h" />
+    <ClInclude Include="inc\HazardousItem.h" />
     <ClInclude Include="inc\IndexHelper.h" />
     <ClInclude Include="inc\ItemDefinition.h" />
     <ClInclude Include="inc\ItemDefinitionDataLayer.h" />
@@ -100,6 +108,7 @@
     <ClInclude Include="inc\PackageDataLayer.h" />
     <ClInclude Include="inc\PackageList.h" />
     <ClInclude Include="inc\RootDataLayer.h" />
+    <ClInclude Include="inc\TimeBtree.h" />
     <ClInclude Include="inc\WarehouseItem.h" />
     <ClInclude Include="inc\WarehouseItemDataLayer.h" />
     <ClInclude Include="inc\WarehouseItemList.h" />
@@ -111,12 +120,20 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="GoodsSample.cpp" />
+    <ClCompile Include="src\ActionTimeStamp.cpp" />
     <ClCompile Include="src\ClientStorage.cpp" />
+    <ClCompile Include="src\CustomField.cpp" />
+    <ClCompile Include="src\CustomFieldController.cpp" />
     <ClCompile Include="src\DatabaseRoot.cpp" />
+    <ClCompile Include="src\DbObject.cpp" />
     <ClCompile Include="src\DimensionDataLayer.cpp" />
     <ClCompile Include="src\Dimensions.cpp" />
     <ClCompile Include="src\FillDatabase.cpp" />
+    <ClCompile Include="src\GlobalIndex.cpp" />
+    <ClCompile Include="src\GlobalIndexController.cpp" />
+    <ClCompile Include="src\goodsex.cpp" />
     <ClCompile Include="src\GoodsSampleApp.cpp" />
+    <ClCompile Include="src\HazardousItem.cpp" />
     <ClCompile Include="src\ItemDefinition.cpp" />
     <ClCompile Include="src\ItemDefinitionDataLayer.cpp" />
     <ClCompile Include="src\ItemDefinitionList.cpp" />
@@ -126,6 +143,7 @@
     <ClCompile Include="src\PackageList.cpp" />
     <ClCompile Include="src\RootDataLayer.cpp" />
     <ClCompile Include="src\Storage.cpp" />
+    <ClCompile Include="src\TimeBtree.cpp" />
     <ClCompile Include="src\WarehouseItem.cpp" />
     <ClCompile Include="src\WarehouseItemDataLayer.cpp" />
     <ClCompile Include="src\WarehouseItemList.cpp" />

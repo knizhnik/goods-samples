@@ -4,10 +4,10 @@
 
 
 
-REGISTER(CPackage, object, pessimistic_scheme);
+REGISTER(CPackage, CDbObject, pessimistic_scheme);
 
 CPackage::CPackage(class_descriptor& desc)
-	: object(desc)
+	: CDbObject(desc)
 {
 }
 
@@ -17,4 +17,11 @@ field_descriptor& CPackage::describe_components()
 		FIELD(m_Code),
 		FIELD(m_Description),
 		FIELD(m_Dimensions);
+}
+
+
+/*virtual override*/
+std::string CPackage::GetHashCode() const
+{
+	return m_Code.getChars();
 }

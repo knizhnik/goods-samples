@@ -45,4 +45,6 @@ void CGoodsSampleApp::run()
 
 	db::db_filler::FillDatabase(CreateFillData());
 	db::db_filler::TestIntegrity();
+	db::db_filler::DeleteAll();
 }
+

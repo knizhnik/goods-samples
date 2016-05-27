@@ -11,4 +11,4 @@ namespace db
 		ref<CDimensions> Clone(ref<CDimensions> const& source);
 
 	}	// namespace dimensions
-}	// namespace db
+}	// namespace db 

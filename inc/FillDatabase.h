@@ -14,7 +14,8 @@ namespace db
 		};
 
 		void FillDatabase(FillDatabaseData const& db_fill_data);
-		bool TestIntegrity();
+		bool TestIntegrity();		
+		void DeleteAll();
 
 	}	// namespace db_filler
 
