@@ -1,5 +1,6 @@
 #pragma once
 
+class CTimeBtree;
 class CWarehouseReceipt;
 
 class CWarehouseReceiptList : public set_owner
@@ -30,6 +31,6 @@ private:
 	void RemoveFromIndexes(ref<CWarehouseReceipt> const& warehouse_receipt);
 
 private:
-	ref<B_tree>		m_IndexByNumber;
+	ref<SB_tree16>	m_IndexByNumber;
 	ref<B_tree>		m_IndexByDate;
 };

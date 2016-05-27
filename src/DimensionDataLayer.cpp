@@ -16,4 +16,3 @@ ref<CDimensions> db::dimensions::Clone(ref<CDimensions> const& source)
 			r_source->GetWidth(),
 			r_source->GetHeight());
 }
-

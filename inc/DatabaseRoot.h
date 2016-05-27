@@ -1,5 +1,7 @@
 #pragma once
 
+class CGlobalIndex;
+
 class CDatabaseRoot : public object
 {
 public:
@@ -34,13 +36,18 @@ public:
 		return m_WarehouseReceipts;
 	}
 
+	ref<CGlobalIndex> GetGlobalIndex() const
+	{
+		return m_GlobalIndex;
+	}
+
 private:
 	void SetupNewDatabase();
 
 private:
-	ref<set_owner>	m_Packages;
-	ref<set_owner>	m_ItemDefinitions;
-	ref<set_owner>	m_WarehouseItems;
-	ref<set_owner>	m_WarehouseReceipts;
+	ref<set_owner>		m_Packages;
+	ref<set_owner>		m_ItemDefinitions;
+	ref<set_owner>		m_WarehouseItems;
+	ref<set_owner>		m_WarehouseReceipts;
+	ref<CGlobalIndex>	m_GlobalIndex;
 };
-

@@ -1,15 +1,17 @@
 
 #pragma once
 
+#include "TimeBtree.h"
+
 #include <algorithm>
 
 namespace Index
 {
-	template<typename KeyType>
+	template<typename TreeType, typename KeyType>
 	struct IndexKeyTraits;
 
-	template<>
-	struct IndexKeyTraits<std::wstring>
+	template<typename TreeType>
+	struct IndexKeyTraits<TreeType, std::wstring>
 	{
 		static ref<set_member> CreateMember(ref<object> const& obj, std::wstring const& key)
 		{
@@ -17,7 +19,7 @@ namespace Index
 			return set_member::create(obj, CreatePersistentKey(key).c_str());
 		}
 
-		static ref<set_member> FindMember(ref<B_tree> const& index, std::wstring const& key)
+		static ref<set_member> FindMember(ref<TreeType> const& index, std::wstring const& key)
 		{
 			const auto pesistent_key = CreatePersistentKey(key);
 			const ref<set_member> found_member = index->findGE(pesistent_key.c_str());
@@ -28,14 +30,14 @@ namespace Index
 			return found_member;
 		}
 
-		static ref<set_member> InsertInIndex(w_ref<B_tree> w_index, ref<object> const& obj, std::wstring const& key)
+		static ref<set_member> InsertInIndex(w_ref<TreeType> w_index, ref<object> const& obj, std::wstring const& key)
 		{
 			auto insert_member = CreateMember(obj, key);
 			w_index->insert(insert_member);
 			return insert_member;
 		}
 
-		static void RemoveFromIndex(w_ref<B_tree> w_index, std::wstring const& key)
+		static void RemoveFromIndex(w_ref<TreeType> w_index, std::wstring const& key)
 		{
 			auto remove_member = FindMember(w_index, key);
 			if (!remove_member.is_nil())
@@ -54,7 +56,7 @@ namespace Index
 	};
 
 	template<>
-	struct IndexKeyTraits<time_t>
+	struct IndexKeyTraits<B_tree, time_t>
 	{
 		static ref<set_member> CreateMember(ref<object> const& obj, time_t key)
 		{
@@ -88,32 +90,68 @@ namespace Index
 		}	
 	};
 
-	template<typename KeyType>
+	template<>
+	struct IndexKeyTraits<CTimeBtree, time_t>
+	{
+		static ref<set_member> CreateMember(ref<object> const& obj, time_t key)
+		{
+			return CTimeSetMember::create(obj, key);
+		}
+
+		static ref<set_member> FindMember(ref<CTimeBtree> const& index, time_t key)
+		{
+			const ref<set_member> found_member = index->FindFirst(key);
+			if (skey_t(found_member->key) != skey_t(key))
+			{
+				return nullptr;
+			}
+			return found_member;
+		}
+
+		static ref<set_member> InsertInIndex(ref<CTimeBtree> index, ref<object> const& obj, time_t key)
+		{
+			auto insert_member = CreateMember(obj, key);
+			modify(index)->insert(insert_member);
+			return insert_member;
+		}
+
+		static void RemoveFromIndex(ref<CTimeBtree> index, time_t key)
+		{
+			auto u_index = update(index);
+			auto remove_member = FindMember(u_index, key);
+			if (!remove_member.is_nil())
+			{
+				modify(index)->remove(remove_member);
+			}
+		}
+	};
+
+	template<typename TreeType, typename KeyType>
 	ref<set_member> CreateMember(ref<object> const& obj, KeyType const& key)
 	{
-		return IndexKeyTraits<KeyType>::CreateMember(obj, key);
+		return IndexKeyTraits<TreeType, KeyType>::CreateMember(obj, key);
 	}
 
 	inline ref<set_member> CreateMember(ref<object> const& obj)
 	{
-		return CreateMember(obj, std::wstring(L""));
+		return CreateMember<B_tree>(obj, std::wstring(L""));
 	}
 
-	template<typename KeyType>
-	ref<set_member> FindMember(ref<B_tree> const& index, KeyType const& key)
+	template<typename TreeType, typename KeyType>
+	ref<set_member> FindMember(ref<TreeType> const& index, KeyType const& key)
 	{
-		return IndexKeyTraits<KeyType>::FindMember(index, key);
+		return IndexKeyTraits<TreeType, KeyType>::FindMember(index, key);
 	}
 
-	template<typename KeyType>
-	ref<set_member> InsertInIndex(w_ref<B_tree> w_index, ref<object> const& obj, KeyType const& key)
+	template<typename TreeType, typename KeyType>
+	ref<set_member> InsertInIndex(ref<TreeType> index, ref<object> const& obj, KeyType const& key)
 	{
-		return IndexKeyTraits<KeyType>::InsertInIndex(w_index, obj, key);
+		return IndexKeyTraits<TreeType, KeyType>::InsertInIndex(index, obj, key);
 	}
 
-	template<typename KeyType>
-	void RemoveFromIndex(w_ref<B_tree> w_index, KeyType const& key)
+	template<typename TreeType, typename KeyType>
+	void RemoveFromIndex(ref<TreeType> index, KeyType const& key)
 	{
-		IndexKeyTraits<KeyType>::RemoveFromIndex(w_index, key);
+		IndexKeyTraits<TreeType, KeyType>::RemoveFromIndex(index, key);
 	}
 }

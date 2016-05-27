@@ -15,6 +15,7 @@ namespace db
 		void Save(ref<CWarehouseReceipt> const& warehouse_receipt);
 		size_t GetCount();
 		ref<CWarehouseReceiptList> GetList();
+		bool Delete(ref<CWarehouseReceipt> const& warehouse_receipt);
 
 	}	// namespace warehouse_receipt
 

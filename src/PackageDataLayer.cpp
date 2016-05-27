@@ -1,5 +1,6 @@
 
 #include "stdafx.h"
+#include "GlobalIndexController.h"
 #include "IndexHelper.h"
 #include "PackageDataLayer.h"
 #include "PackageList.h"
@@ -30,6 +31,8 @@ void db::package::Save(ref<CPackage> const& package)
 
 	auto insert_member = Index::CreateMember(package);
 	package_list->insert(insert_member);
+
+	db::global_index::InsertObject(package);
 }
 
 size_t db::package::GetCount()
