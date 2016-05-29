@@ -845,6 +845,14 @@ void pgsql_storage::commit_transaction(stid_t      coordinator,
 	assert(false);
 }
 
+
+void pgsql_storage::rollback_transaction()
+{
+	txn->abort();
+	delete txn;
+	txn  = NULL;
+}
+
 boolean pgsql_storage::wait_global_transaction_completion()
 {
 	return false;

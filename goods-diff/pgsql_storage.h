@@ -138,6 +138,11 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     // to this buffer. 
     //
     virtual void    begin_transaction(dnm_buffer& buf); 
+    
+    //
+    // Rollback transaction in which this storage was involved
+    //
+    virtual void    rollback_transaction();    
 
     //
     // Commit local transaction or part of global transaction 
