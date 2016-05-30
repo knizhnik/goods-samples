@@ -359,10 +359,11 @@ static bool TestCustomFields(ref<CWarehouseReceipt> const& whr)
 
 static bool TestShipperEmail(ref<CWarehouseReceipt> const& whr)
 {
-	const auto email = whr->GetShipperEmail();
+	auto email = whr->GetShipperEmail();
 	const std::string domain = "@magaya.com";
 
-	return std::equal(rbegin(email), rbegin(email) + domain.size(), rbegin(domain));
+//	return std::equal(rbegin(email), rbegin(email) + domain.size(), rbegin(domain));
+	return email.rfind(domain) != std::string::npos;
 }
 
 static bool TestWarehouseReceiptIntegrity(ref<CWarehouseReceipt> const& whr)

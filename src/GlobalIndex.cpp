@@ -7,7 +7,7 @@ REGISTER(CGlobalIndex, object, pessimistic_scheme);
 
 CGlobalIndex::CGlobalIndex(class_descriptor& desc)
 	: object(desc)
-	, m_HashTable(hash_table::create(100))
+	, m_HashTable(DbHash::create(100))
 {
 }
 

@@ -125,7 +125,7 @@ BOOL CTimeSetMember::UpdatePosition(time_t tkey)
 /////////////////////////////////////////////////////////////////////////////
 // Implementation for class CTimeBtree
 
-REGISTER(CTimeBtree, B_tree, pessimistic_scheme);
+REGISTER(CTimeBtree, DbIndex, pessimistic_scheme);
 
 field_descriptor& CTimeBtree::describe_components()
 {
@@ -145,12 +145,12 @@ void CTimeBtree::remove(ref<set_member> mbr)
 
 void CTimeBtree::InsertPlain(ref<set_member> mbr)
 {
-	B_tree::insert(mbr);
+	DbIndex::insert(mbr);
 }
 
 void CTimeBtree::RemovePlain(ref<set_member> mbr)
 {
-	B_tree::remove(mbr);
+	DbIndex::remove(mbr);
 }
 
 ref<set_member> CTimeBtree::FindFirst(time_t t) const
@@ -181,7 +181,7 @@ void CTimeBtree::GetDateRange(ref<CTimeBtree> btree,
 	{
 		ref<set_member> mbr = btree->findGE(EndTime);
 		//skip the equal elements
-		while(!mbr.is_nil() && mbr->get_key() == EndTime)
+		while(!mbr.is_nil() && (time_t)mbr->get_key() == EndTime)
 			mbr = mbr->next;
 		End = mbr.is_nil() ? End : mbr->prev;
 		End = End.is_nil() ? Start : End;

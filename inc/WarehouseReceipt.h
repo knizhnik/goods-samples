@@ -86,7 +86,7 @@ public:
 
 	void SetShipperEmail(const char* email)
 	{
-		m_ShipperEmail = raw_binary_t { email, strlen(email) + 1 };
+		m_ShipperEmail = raw_binary_t(email, strlen(email) + 1);
 	}
 
 protected:

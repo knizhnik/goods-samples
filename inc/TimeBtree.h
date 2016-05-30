@@ -29,12 +29,12 @@ public:
 	virtual skey_t  get_key() const;
 };
 
-class CTimeBtree : public B_tree
+class CTimeBtree : public DbIndex
 {
 public:
-	METACLASS_DECLARATIONS(CTimeBtree, B_tree);
+	METACLASS_DECLARATIONS(CTimeBtree, DbIndex);
 	CTimeBtree(class_descriptor& desc, ref<object> const& obj)
-		   : B_tree(desc, obj) { }
+		   : DbIndex(desc, obj) { }
 	static ref<CTimeBtree> create(ref<object> const& obj){
 		return NEW CTimeBtree(self_class, obj);
 	}

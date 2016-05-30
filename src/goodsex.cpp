@@ -1,6 +1,6 @@
 // -- Goods Extensions
 
-#include "stdAfx.h"
+#include "stdafx.h"
 #include "goodsex.h"
 
 ref<set_member> try_reuse_member(ref<set_member> cur_mbr, ref<set_member> const& new_mbr)

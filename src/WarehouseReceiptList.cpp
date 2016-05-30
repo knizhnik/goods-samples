@@ -63,13 +63,13 @@ void CWarehouseReceiptList::InsertInIndexes(ref<CWarehouseReceipt> const& wareho
 
 void CWarehouseReceiptList::RemoveFromIndexes(ref<CWarehouseReceipt> const& warehouse_receipt)
 {
-	const auto number = warehouse_receipt->GetNumber();
-	const auto date = warehouse_receipt->GetDate();
+//	const auto number = warehouse_receipt->GetNumber();
+//	const auto date = warehouse_receipt->GetDate();
 
 	auto number_index = warehouse_receipt->GetIndexMember(WarehouseReceiptIndexMemberEnum::IndexByNumber);
 	remove_from_set_owner(m_IndexByNumber, number_index);
 
-	auto date_index = warehouse_receipt->GetIndexMember(WarehouseReceiptIndexMemberEnum::IndexByNumber);
+	auto date_index = warehouse_receipt->GetIndexMember(WarehouseReceiptIndexMemberEnum::IndexByDate);
 	remove_from_set_owner(m_IndexByDate, date_index);
 }
 

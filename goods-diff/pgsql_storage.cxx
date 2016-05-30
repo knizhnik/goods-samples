@@ -150,22 +150,22 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	try {
 		work txn(*con);	
 		txn.exec("create domain objref as bigint");
+		txn.commit();
 	} catch (pqxx_exception const&x) {} // ignore error if domain alreqady exists
 
 	work txn(*con);	
 
 	txn.exec("create extension if not exists external_file");
 
-	txn.exec("create table if not exists dict_entry(owner objref, key text, value objref)");
+	txn.exec("create table if not exists dict_entry(owner objref, name text, value objref)");
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
-	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea, skey bigint)");
+	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea)");
 	txn.exec("create table if not exists root_class(cpid integer)");
 
-	txn.exec("create index if not exists dict_key_index on dict_entry(key)");
+	txn.exec("create index if not exists dict_key_index on dict_entry(name)");
 	txn.exec("create index if not exists dict_owner_index on dict_entry(owner)");
 	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
-	txn.exec("create index if not exists set_member_skey on set_member(skey)");
 
 	txn.exec("create sequence if not exists oid_sequence");
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
@@ -181,8 +181,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
 	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
 	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 limit 1");
-	con->prepare("index_equal_skey", "select * from set_member m where owner=$1 and skey=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.skey=$2)");
-	con->prepare("index_greater_or_equal_skey", "select * from set_member where owner=$1 and skey>=$2 limit 1");
 	con->prepare("index_drop", "delete from set_member where owner=$1");
 	con->prepare("index_del", "delete from set_member where owner=$1 and opid=$2");
 
@@ -209,9 +207,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			if (root_class == &set_member::self_class) { 
 				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
 			}
-			if (cls->base_class == &set_member::self_class) { 
-				columns.push_back("skey");
-			}
 			{
 				std::stringstream sql;			
 				sql << "insert into \"" << table_name << "\" (opid";
@@ -225,7 +220,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				sql << ")";
 				con->prepare(class_name + "_insert", sql.str());
 			}
-			{
+			if (columns.size() != 0) {
 				std::stringstream sql;			
 				sql << "update \"" << table_name << "\" set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
@@ -260,7 +255,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
 				con->prepare(table_name + "_loadobj", std::string("select * from \"") + table_name + "\" where opid=$1");
-				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,s.skey as mbr_skey,t.* from set_members s, \"") + table_name + "\" t where t.opid=s.obj limit $2");
+				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, \"") + table_name + "\" t where t.opid=s.obj limit $2");
 
 			}
 		}	
@@ -564,7 +559,7 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,s.skey as mbr_skey,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
@@ -806,24 +801,12 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		if (desc == &ExternalBlob::self_class) { 
 			std::string blob(src_bins, hdr->get_size());
 			txn->prepared("write_file")(opid)(txn->esc_raw(blob)).exec();
-		} else { 	
+		} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
 			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 			stmt(opid);
 			
 			size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
 			assert(left == 0);
-			if (desc->base_class == &set_member::self_class) { 
-				int64_t skey = 0; 
-				switch (hdr->get_size() - sizeof(dbs_reference_t)*4) { 
-				  case 4:
-					skey = unpack4((char*)(hdr+1) + sizeof(dbs_reference_t)*4);
-					break;
-				  case 8:
-					unpack8((char*)&skey, (char*)(hdr+1) + sizeof(dbs_reference_t)*4);
-					break;
-				}
-				stmt(skey);
-			}
 			stmt.exec();
 		}
 		ptr = (char*)(hdr + 1) + hdr->get_size();
@@ -833,6 +816,13 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	txn = NULL;
 	return true;
 }
+
+void pgsql_storage::rollback_transaction()
+{
+	txn->abort();
+	delete txn;
+	txn = NULL;
+}	
 	
 void pgsql_storage::commit_transaction(stid_t      coordinator, 
 									   int         n_trans_servers,
@@ -921,17 +911,13 @@ ref<set_member> pgsql_index::find(const char* str) const
 ref<set_member> pgsql_index::find(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	std::stringstream buf;			
-	buf << key;
-	return pg->index_find(get_database(), hnd->opid, "index_equal_skey", buf.str());
+	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string((char*)&key, sizeof key));
 }
 
 ref<set_member> pgsql_index::findGE(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	std::stringstream buf;			
-	buf << key;
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal_skey", buf.str());
+	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string((char*)&key, sizeof key));
 }
 
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
@@ -986,6 +972,7 @@ void pgsql_index::clear()
 	session.commit();
 }
 
+
 //
 // Emulation of GOODS hash_table 
 //
@@ -1000,11 +987,13 @@ field_descriptor& pgsql_dictionary::describe_components()
 void pgsql_dictionary::put(const char* name, anyref obj)
 {
 	pgsql_storage* pg = get_storage(this);
+	pgsql_storage::pgsql_session session(pg);
 	hnd_t obj_hnd = obj->get_handle();
 	if (obj_hnd->opid == 0) { 
+		object_monitor::lock_global();
 		object_handle::make_persistent(obj_hnd, hnd->storage);
+		object_monitor::unlock_global();
 	}
-	pgsql_storage::pgsql_session session(pg);
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
 	session.commit();
 }

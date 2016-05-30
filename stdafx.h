@@ -55,9 +55,12 @@ typedef unsigned DWORD;
 #if PGSQL_ORM
 #include "pgsql_storage.h"
 typedef pgsql_index DbIndex;
+typedef pgsql_index DbIndex16;
+typedef pgsql_dictionary DbHash;
 #else
 typedef B_tree DbIndex;
 typedef SB_tree16 DbIndex16;
+typedef hash_table DbHash;
 #endif
 
 

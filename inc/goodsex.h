@@ -12,7 +12,6 @@ ref<DestinationType> goods_cast(ref<SourceType> const& obj)
 	if(obj.is_nil())
 		return nullptr;
 
-	r_ref<object> r_obj = obj;
 #if GOODS_RUNTIME_TYPE_CHECKING
 
 	if (classof((DestinationType const*)0).is_superclass_for(obj->get_handle()))

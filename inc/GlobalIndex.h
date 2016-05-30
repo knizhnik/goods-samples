@@ -20,5 +20,5 @@ private:
 	CGlobalIndex(class_descriptor& desc);
 
 private:
-	ref<hash_table>	m_HashTable;
+	ref<DbHash>	m_HashTable;
 };

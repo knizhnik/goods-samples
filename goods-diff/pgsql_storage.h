@@ -140,6 +140,11 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    begin_transaction(dnm_buffer& buf); 
 
     //
+    // Rollback transaction in which this storage was involved
+    //
+    virtual void    rollback_transaction();
+
+    //
     // Commit local transaction or part of global transaction 
     // at coordinator server. In latter case coordinator will return 
     // transaction indentifier which should be 
@@ -212,8 +217,9 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
 
     METACLASS_DECLARATIONS(pgsql_index, B_tree);
     pgsql_index(anyref const& obj) : B_tree(self_class, obj, 0) {}
+    pgsql_index(class_descriptor& desc, ref<object> const& obj) : B_tree(desc, obj, 0) {}
 };
-	
+
 class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary { 
   public: 
     //
@@ -248,6 +254,10 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
     METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
     
     pgsql_dictionary() : dictionary(self_class) {}
+
+    static ref<pgsql_dictionary> create(size_t estimation = 10001) {
+        return NEW pgsql_dictionary();
+    }
 };    
 
 

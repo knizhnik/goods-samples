@@ -31,6 +31,6 @@ private:
 	void RemoveFromIndexes(ref<CWarehouseReceipt> const& warehouse_receipt);
 
 private:
-	ref<SB_tree16>	m_IndexByNumber;
-	ref<B_tree>		m_IndexByDate;
+	ref<DbIndex16>	m_IndexByNumber;
+	ref<DbIndex>	m_IndexByDate;
 };

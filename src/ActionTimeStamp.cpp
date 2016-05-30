@@ -1,5 +1,5 @@
 
-#include "StdAfx.h"
+#include "stdafx.h"
 #include "ActionTimeStamp.h"
 
 field_descriptor& CActionTimeStamp::describe_components()

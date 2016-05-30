@@ -56,14 +56,14 @@ namespace Index
 	};
 
 	template<>
-	struct IndexKeyTraits<B_tree, time_t>
+	struct IndexKeyTraits<DbIndex, time_t>
 	{
 		static ref<set_member> CreateMember(ref<object> const& obj, time_t key)
 		{
 			return set_member::create(obj, reinterpret_cast<const char*>(&key), sizeof(time_t));
 		}
 
-		static ref<set_member> FindMember(ref<B_tree> const& index, time_t key)
+		static ref<set_member> FindMember(ref<DbIndex> const& index, time_t key)
 		{			
 			const ref<set_member> found_member = index->findGE(skey_t(key));
 			if (skey_t(found_member->key) != skey_t(key))
@@ -73,14 +73,14 @@ namespace Index
 			return found_member;
 		}
 
-		static ref<set_member> InsertInIndex(w_ref<B_tree> w_index, ref<object> const& obj, time_t key)
+		static ref<set_member> InsertInIndex(w_ref<DbIndex> w_index, ref<object> const& obj, time_t key)
 		{
 			auto insert_member = CreateMember(obj, key);
 			w_index->insert(insert_member);
 			return insert_member;
 		}
 
-		static void RemoveFromIndex(w_ref<B_tree> w_index, time_t key)
+		static void RemoveFromIndex(w_ref<DbIndex> w_index, time_t key)
 		{
 			auto remove_member = FindMember(w_index, key);
 			if (!remove_member.is_nil())
@@ -134,7 +134,7 @@ namespace Index
 
 	inline ref<set_member> CreateMember(ref<object> const& obj)
 	{
-		return CreateMember<B_tree>(obj, std::wstring(L""));
+		return CreateMember<DbIndex>(obj, std::wstring(L""));
 	}
 
 	template<typename TreeType, typename KeyType>
