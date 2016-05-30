@@ -145,11 +145,6 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    rollback_transaction();    
 
     //
-    // Rollback transaction in which this storage was involved
-    //
-    virtual void    rollback_transaction();
-
-    //
     // Commit local transaction or part of global transaction 
     // at coordinator server. In latter case coordinator will return 
     // transaction indentifier which should be 

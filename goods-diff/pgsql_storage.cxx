@@ -835,14 +835,6 @@ void pgsql_storage::commit_transaction(stid_t      coordinator,
 	assert(false);
 }
 
-
-void pgsql_storage::rollback_transaction()
-{
-	txn->abort();
-	delete txn;
-	txn  = NULL;
-}
-
 boolean pgsql_storage::wait_global_transaction_completion()
 {
 	return false;
@@ -921,12 +913,14 @@ ref<set_member> pgsql_index::find(const char* str) const
 ref<set_member> pgsql_index::find(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
+	pack8(key);
 	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string((char*)&key, sizeof key));
 }
 
 ref<set_member> pgsql_index::findGE(skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
+	pack8(key);
 	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string((char*)&key, sizeof key));
 }
 
