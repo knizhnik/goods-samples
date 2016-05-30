@@ -11,3 +11,4 @@ public:
 protected:
 	virtual boolean open(const char* server_connection_name, const char* login, const char* password) override;
 };
+

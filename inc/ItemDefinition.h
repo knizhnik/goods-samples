@@ -1,18 +1,28 @@
 
 #pragma once
 
+#include "DbObject.h"
+
 class CDimensions;
 class CPackage;
 
-class CItemDefinition : public object
+enum class CItemDefinitionFlags
+{
+	None = 0,
+	HazMat = 1
+};
+
+class CItemDefinition : public CDbObject
 {
 public:
-	METACLASS_DECLARATIONS(CItemDefinition, object);
+	METACLASS_DECLARATIONS(CItemDefinition, CDbObject);
 
 	static ref<CItemDefinition> create()
 	{
 		return NEW CItemDefinition(self_class);
 	}
+
+	virtual std::string GetHashCode() const override;
 
 	std::wstring GetCode() const
 	{
@@ -37,6 +47,16 @@ public:
 	double GetWeight() const
 	{
 		return m_Weight;
+	}
+
+	bool IsMarkedAs(CItemDefinitionFlags flag) const
+	{
+		return (m_Flags & static_cast<nat8>(flag)) != 0;
+	}
+
+	ref<ExternalBlob> GetImage() const
+	{
+		return m_Image;
 	}
 
 	void SetCode(const wchar_t* code) 
@@ -64,6 +84,16 @@ public:
 		m_Weight = weight;
 	}
 
+	void SetFlags(CItemDefinitionFlags flag, bool value)
+	{
+		m_Flags = (value) ? (m_Flags | static_cast<nat8>(flag)) : (m_Flags & ~static_cast<nat8>(flag));
+	}
+
+	void SetImage(const void* body, size_t size) 
+	{
+		m_Image = ExternalBlob::create(body, size);
+	}
+
 protected:
 	CItemDefinition(class_descriptor& desc);
 
@@ -73,4 +103,6 @@ private:
 	ref<CPackage>		m_Package;
 	ref<CDimensions>	m_Dimensions;
 	double				m_Weight;
+	nat8				m_Flags;
+	ref<ExternalBlob>	m_Image;
 };

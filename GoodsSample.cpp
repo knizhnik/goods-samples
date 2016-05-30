@@ -43,9 +43,9 @@ int main(int argc, char* argv[])
 
 	app.run();
 	app.close();
+
 #ifdef _WIN32
 	system("pause");
 #endif	
 	return EXIT_SUCCESS;
 }
-

@@ -13,7 +13,7 @@ CCFLAGS = -c -g -O$(OPTLEVEL) $(SYSDEFS) -I. -I../goods/inc -I../goods/src -Iinc
 LD = g++
 LDFLAGS = $(SYSDEFS) -g
 
-OBJS = pgsql_storage.o GoodsSample.o ClientStorage.o DatabaseRoot.o Dimensions.o DimensionDataLayer.o  FillDatabase.o  GoodsSampleApp.o  ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o  WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
+OBJS = pgsql_storage.o GoodsSample.o ActionTimeStamp.o ClientStorage.o CustomFieldController.o CustomField.o DatabaseRoot.o DbObject.o Dimensions.o DimensionDataLayer.o GlobalIndexController.o GlobalIndex.o FillDatabase.o goodsex.o GoodsSampleApp.o HazardousItem.o ItemDefinition.o  ItemDefinitionDataLayer.o  ItemDefinitionList.o  magaya_client_storage.o  Package.o  PackageDataLayer.o  PackageList.o  RootDataLayer.o  Storage.o TimeBtree.o WarehouseItem.o  WarehouseItemDataLayer.o  WarehouseItemList.o  WarehouseReceipt.o  WarehouseReceiptDataLayer.o  WarehouseReceiptList.o 
 
 INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/DimensionDataLayer.h inc/Dimensions.h inc/FillDatabase.h inc/goods_container.h inc/GoodsSampleApp.h inc/GoodsTLCache.h inc/IndexHelper.h inc/ItemDefinitionDataLayer.h inc/ItemDefinition.h inc/ItemDefinitionList.h inc/magaya_client_storage.h inc/PackageDataLayer.h inc/Package.h inc/PackageList.h inc/RootDataLayer.h inc/Storage.h inc/WarehouseItemDataLayer.h inc/WarehouseItem.h inc/WarehouseItemList.h inc/WarehouseReceiptDataLayer.h inc/WarehouseReceipt.h inc/WarehouseReceiptList.h goods-diff/pgsql_storage.h
 
@@ -28,6 +28,34 @@ pgsql_storage.o: goods-diff/pgsql_storage.cxx goods-diff/pgsql_storage.h
 
 GoodsSample.o: GoodsSample.cpp $(INC)
 	$(CC) $(CCFLAGS) GoodsSample.cpp 
+
+ActionTimeStamp.o: src/ActionTimeStamp.cpp $(INC)
+	$(CC) $(CCFLAGS) src/ActionTimeStamp.cpp
+
+CustomFieldController.o: src/CustomFieldController.cpp $(INC)
+	$(CC) $(CCFLAGS) src/CustomFieldController.cpp
+
+CustomField.o: src/CustomField.cpp $(INC)
+	$(CC) $(CCFLAGS) src/CustomField.cpp
+
+DbObject.o: src/DbObject.cpp $(INC)
+	$(CC) $(CCFLAGS) src/DbObject.cpp
+
+GlobalIndexController.o: src/GlobalIndexController.cpp $(INC)
+	$(CC) $(CCFLAGS) src/GlobalIndexController.cpp
+
+GlobalIndex.o: src/GlobalIndex.cpp $(INC)
+	$(CC) $(CCFLAGS) src/GlobalIndex.cpp
+
+goodsex.o: src/goodsex.cpp $(INC)
+	$(CC) $(CCFLAGS) src/goodsex.cpp
+
+HazardousItem.o: src/HazardousItem.cpp $(INC)
+	$(CC) $(CCFLAGS) src/HazardousItem.cpp
+
+TimeBtree.o: src/TimeBtree.cpp $(INC)
+	$(CC) $(CCFLAGS) src/TimeBtree.cpp
+
 
 DatabaseRoot.o: src/DatabaseRoot.cpp $(INC)
 	$(CC) $(CCFLAGS) src/DatabaseRoot.cpp

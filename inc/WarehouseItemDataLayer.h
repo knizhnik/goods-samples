@@ -14,6 +14,7 @@ namespace db
 		void SetItemDefinition(w_ref<CWarehouseItem> w_item, ref<CItemDefinition> const& item_definition);
 		size_t GetCount();
 		ref<CWarehouseItemList> GetList();
+		bool Delete(ref<CWarehouseItem> const& wh_item);
 
 	}	// namespace wh_item
 

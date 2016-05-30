@@ -319,3 +319,4 @@ bool CObjectStorage::ValidateConnectionString(std::string const& connection_stri
 	critical_section guard(cs);
 	return static_cast<CClientStorage*>(storage)->ValidateConnectionString(connection_string);
 }
+
