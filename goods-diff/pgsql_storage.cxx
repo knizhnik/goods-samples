@@ -255,7 +255,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
 				con->prepare(table_name + "_loadobj", std::string("select * from \"") + table_name + "\" where opid=$1");
-				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, \"") + table_name + "\" t where t.opid=s.obj limit $2");
+				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"") + table_name + "\" t where m.opid=s.opid and t.opid=s.obj limit $2");
 
 			}
 		}	
@@ -561,7 +561,7 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select s.opid as mbr_opid,s.next as mbr_next,s.prev as mbr_prev,s.owner as mbr_owner,s.obj as mbr_obj,s.key as mbr_key,t.* from set_members s, " << table_name << " t where t.opid=s.obj and " << query << " limit " << max_members;
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, " << table_name << " t where m.opid=s.opid and t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
