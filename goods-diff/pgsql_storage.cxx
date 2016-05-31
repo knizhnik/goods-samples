@@ -815,7 +815,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	delete txn;
 	txn = NULL;
 	// cleanup cache after transaction commit to avoid deteriorated object instances because we do not have invalidation mechanism for PsotgreSQL
-	// cache_manager::instance.cleanup_cache(NULL); 
+	cache_manager::instance.invalidate_cache(); 
 	return true;
 }
 
