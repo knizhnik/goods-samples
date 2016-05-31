@@ -109,19 +109,19 @@ static char const* map_type(field_descriptor* field)
 	}
 }
 
-static void define_table_columns(std::set<std::string>& columns, std::string const& prefix, field_descriptor* first, std::stringstream& sql, bool ignore_inherited)
+static void define_table_columns(std::set<std::string>& columns, std::string const& prefix, field_descriptor* first, std::stringstream& sql, int inheritance_depth)
 {
 	if (first == NULL) {
 		return;
 	}
 
 	field_descriptor* field = first;
-	if (ignore_inherited) { 
+	if (inheritance_depth < 0) { 
 		goto NextField;
 	}
     do { 
 		if (field->loc.type == fld_structure) { 
-			define_table_columns(columns, prefix + field->name, field->components, sql, false);
+			define_table_columns(columns, field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, sql, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else if (columns.find(field->name) == columns.end()) { 
 			columns.insert(field->name);
 			sql << ",\"" << prefix << field->name << "\" " << map_type(field);
@@ -237,7 +237,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				std::stringstream sql;
 				sql << "create table if not exists \"" << class_name << "\"(opid objref primary key";
 				std::set<std::string> columns;
-				define_table_columns(columns, "", cls->fields, sql, false);
+				define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
 
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
@@ -245,7 +245,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 						if (derived != cls && !is_btree(derived->name)) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 								if (base == cls) { 
-									define_table_columns(columns, "", derived->fields, sql, true);
+									define_table_columns(columns, "", derived->fields, sql, -1);
 									break;
 								}
 							}
@@ -1008,7 +1008,7 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 	hnd_t obj_hnd = obj->get_handle();
 	if (obj_hnd->opid == 0) { 
 		object_monitor::lock_global();
-		object_handle::make_persistent(obj_hnd, hnd->storage);
+		obj_hnd->obj->mop->make_persistent(obj_hnd, hnd);
 		object_monitor::unlock_global();
 	}
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
