@@ -373,124 +373,123 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 
 	field_descriptor* field = first;
     do { 
-		result::tuple::reference col;
-		if (field->loc.type != fld_struct) {
-		    col = record[std::string("\"") + prefix + field->name + '"'];
-   		}
-		assert(!col.is_null() || field->loc.type == fld_string);
-		if (field->loc.n_items != 1) { 
-			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
-			if (field->flags & fld_binary) {
-				binarystring blob(col);
-				if (field->loc.n_items == 0) { 
-					char* dst = buf.append(blob.size());
-					memcpy(dst, blob.data(), blob.size());
-				} else { 
-					char* dst = buf.append(field->loc.n_items);
-					if ((size_t)field->loc.n_items <= blob.size()) { 
-						memcpy(dst, blob.data(), field->loc.n_items);
-					} else { 
-						memcpy(dst, blob.data(), blob.size());
-						memset(dst + blob.size(), 0, field->loc.n_items - blob.size());
-					}
-				}
-			} else { 
-				std::string str = col.as(std::string());
-				if (field->loc.n_items == 0) { 
-					char* dst = buf.append(str.size());
-					memcpy(dst, str.data(), str.size());
-				} else { 
-					char* dst = buf.append(field->loc.n_items);
-					if ((size_t)field->loc.n_items <= str.size()) { 
-						memcpy(dst, str.data(), field->loc.n_items);
-					} else { 
-						memcpy(dst, str.data(), str.size());
-						memset(dst + str.size(), 0, field->loc.n_items - str.size());
-					}
-				}
-			}
+		if (field->loc.type == fld_structure) { 
+			assert(field->loc.n_items == 1);
+			n_refs = unpack_struct(prefix + field->name + ".", field->components, buf, record, n_refs);
 		} else {
-			switch(field->loc.type) { 
-			  case fld_reference:
-			  {
-				  char* dst = (char*)((dbs_reference_t*)(&buf + sizeof(dbs_object_header)) + n_refs++);
-				  opid_t opid = col.as(opid_t());
-				  packref(dst, 0, opid);
-				  break;			  
-			  }
-			  case fld_string:
-			  {
-				  if (col.is_null()) { 
-					  char* dst = buf.append(2);
-					  pack2(dst, 0xFFFF);
-				  } else {
-					  std::string str = col.as(std::string());
-					  wstring_t wstr(str.c_str());
-					  char* dst = buf.append((1 + wstr.length())*2);
-					  dst = pack2(dst, wstr.length());
-					  for (int i = 0; i < wstr.length(); i++) { 
-						  dst = pack2(dst, (nat2)wstr[i]);
+			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
+			assert(!col.is_null() || field->loc.type == fld_string);
+			if (field->loc.n_items != 1) { 
+				assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
+				if (field->flags & fld_binary) {
+					binarystring blob(col);
+					if (field->loc.n_items == 0) { 
+						char* dst = buf.append(blob.size());
+						memcpy(dst, blob.data(), blob.size());
+					} else { 
+						char* dst = buf.append(field->loc.n_items);
+						if ((size_t)field->loc.n_items <= blob.size()) { 
+							memcpy(dst, blob.data(), field->loc.n_items);
+						} else { 
+							memcpy(dst, blob.data(), blob.size());
+							memset(dst + blob.size(), 0, field->loc.n_items - blob.size());
+						}
+					}
+				} else { 
+					std::string str = col.as(std::string());
+					if (field->loc.n_items == 0) { 
+						char* dst = buf.append(str.size());
+						memcpy(dst, str.data(), str.size());
+					} else { 
+						char* dst = buf.append(field->loc.n_items);
+						if ((size_t)field->loc.n_items <= str.size()) { 
+							memcpy(dst, str.data(), field->loc.n_items);
+						} else { 
+							memcpy(dst, str.data(), str.size());
+							memset(dst + str.size(), 0, field->loc.n_items - str.size());
+						}
+					}
+				}
+			} else {
+				switch(field->loc.type) { 
+				  case fld_reference:
+				  {
+					  char* dst = (char*)((dbs_reference_t*)(&buf + sizeof(dbs_object_header)) + n_refs++);
+					  opid_t opid = col.as(opid_t());
+					  packref(dst, 0, opid);
+					  break;			  
+				  }
+				  case fld_string:
+				  {
+					  if (col.is_null()) { 
+						  char* dst = buf.append(2);
+						  pack2(dst, 0xFFFF);
+					  } else {
+						  std::string str = col.as(std::string());
+						  wstring_t wstr(str.c_str());
+						  char* dst = buf.append((1 + wstr.length())*2);
+						  dst = pack2(dst, wstr.length());
+						  for (int i = 0; i < wstr.length(); i++) { 
+							  dst = pack2(dst, (nat2)wstr[i]);
+						  }
 					  }
-				  }
-				  break;
-			  }
-			  case fld_raw_binary:
-			  {
-				  binarystring blob(col);
-				  char* dst = buf.append(4 + blob.size());
-				  dst = pack4(dst, blob.size());
-				  memcpy(dst, blob.data(), blob.size());
-				  break;
-			  }
-			  case fld_signed_integer:
-			  case fld_unsigned_integer:
-				switch (field->loc.size) { 
-				  case 1:				
-					*buf.append(1) = (char)col.as(int());
-					break;
-				  case 2:
-					pack2(buf.append(2), col.as(int2()));
-					break;
-				  case 4:
-					pack4(buf.append(4), col.as(int4()));
-					break;
-				  case 8:
-				  {
-					  int8 ival = col.as(int8());					  
-					  pack8(buf.append(8), (char*)&ival);
 					  break;
 				  }
+				  case fld_raw_binary:
+				  {
+					  binarystring blob(col);
+					  char* dst = buf.append(4 + blob.size());
+					  dst = pack4(dst, blob.size());
+					  memcpy(dst, blob.data(), blob.size());
+					  break;
+				  }
+				  case fld_signed_integer:
+				  case fld_unsigned_integer:
+					switch (field->loc.size) { 
+					  case 1:				
+						*buf.append(1) = (char)col.as(int());
+						break;
+					  case 2:
+						pack2(buf.append(2), col.as(int2()));
+						break;
+					  case 4:
+						pack4(buf.append(4), col.as(int4()));
+						break;
+					  case 8:
+					  {
+						  int8 ival = col.as(int8());					  
+						  pack8(buf.append(8), (char*)&ival);
+						  break;
+					  }
+					  default:
+						assert(false);
+					}
+					break;
+				  case fld_real:
+					switch (field->loc.size) { 
+					  case 4:
+					  {
+						  union {
+							  float f;
+							  int4  i;
+						  } u;
+						  u.f = col.as(float());
+						  pack4(buf.append(4), u.i); 
+						  break;
+					  }
+					  case 8:
+					  {
+						  double f = col.as(double());
+						  pack8(buf.append(8), (char*)&f); 
+						  break;
+					  }
+					  default:
+						assert(false);
+					}
+					break;
 				  default:
 					assert(false);
 				}
-				break;
-			  case fld_real:
-				switch (field->loc.size) { 
-				  case 4:
-				  {
-					  union {
-						  float f;
-						  int4  i;
-					  } u;
-					  u.f = col.as(float());
-					  pack4(buf.append(4), u.i); 
-					  break;
-				  }
-				  case 8:
-				  {
-					  double f = col.as(double());
-					  pack8(buf.append(8), (char*)&f); 
-					  break;
-				  }
-				  default:
-					assert(false);
-				}
-				break;
-			  case fld_structure:
-				n_refs = unpack_struct(prefix + field->name + ".", field->components, buf, record, n_refs);
-				break;
-			  default:
-				assert(false);
 			}
 		}
         field = (field_descriptor*)field->next;
