@@ -365,7 +365,7 @@ class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 }
 
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
-							dnm_buffer& buf, result::tuple const& record, size_t n_refs)
+							dnm_buffer& buf, result::tuple const& record, size_t n_refs, int inheritance_depth)
 {
 	if (first == NULL) {
 		return n_refs;
@@ -375,7 +375,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
     do { 
 		if (field->loc.type == fld_structure) { 
 			assert(field->loc.n_items == 1);
-			n_refs = unpack_struct(prefix + field->name + ".", field->components, buf, record, n_refs);
+			n_refs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, n_refs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else {
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
 			assert(!col.is_null() || field->loc.type == fld_string);
@@ -514,7 +514,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 		binarystring blob(rs[0][0]);
 		memcpy(buf.append(blob.size()), blob.data(), blob.size());
 	} else { 		
-		size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0);
+		size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0, get_inheritance_depth(desc));
 		assert(n_refs == desc->n_fixed_references);
 	}
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
