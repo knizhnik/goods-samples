@@ -18,7 +18,10 @@
 
 class_descriptor* get_root_class(class_descriptor* desc)
 {
-	while (desc->base_class != &object::self_class && !(desc->class_attr & CLASS_HIERARCHY_ROOT)) { 
+	while (desc->base_class != &object::self_class 
+		   && !(desc->class_attr & CLASS_HIERARCHY_ROOT) 
+		   && !(desc->base_class->class_attr & CLASS_HIERARCHY_SUPER_ROOT)) 
+	{ 
 		desc = desc->base_class;
 	}
 	return desc;

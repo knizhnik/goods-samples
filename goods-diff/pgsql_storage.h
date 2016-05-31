@@ -33,6 +33,7 @@ const size_t OPID_BUF_SIZE = 64;
 // Separate table will be created for such class (shared by all inherited classes)
 //
 const int CLASS_HIERARCHY_ROOT = 2; 
+const int CLASS_HIERARCHY_SUPER_ROOT = 4; 
 
 //
 // This class provides bridge to PostgreSQL
