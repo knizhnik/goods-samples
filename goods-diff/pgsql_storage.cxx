@@ -373,7 +373,10 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 
 	field_descriptor* field = first;
     do { 
-		result::tuple::reference col = record[prefix + field->name];
+		result::tuple::reference col;
+		if (field->loc.type != fld_struct) {
+		    col = record[std::string("\"") + prefix + field->name + '"'];
+   		}
 		assert(!col.is_null() || field->loc.type == fld_string);
 		if (field->loc.n_items != 1) { 
 			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
@@ -410,7 +413,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 			switch(field->loc.type) { 
 			  case fld_reference:
 			  {
-				  char* dst = (char*)((dbs_reference_t*)&buf + n_refs++);
+				  char* dst = (char*)((dbs_reference_t*)(&buf + sizeof(dbs_object_header)) + n_refs++);
 				  opid_t opid = col.as(opid_t());
 				  packref(dst, 0, opid);
 				  break;			  
@@ -570,6 +573,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 						 int flags, dnm_buffer& buf)
 {
 	pgsql_session session(this);
+	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
 		opid_t opid = opp[i];
 		cpid_t cpid = GET_CID(opid);
@@ -590,7 +594,12 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 		class_descriptor* desc = lookup_class(cpid);		
 		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
 		assert(rs.size() == 1);
+		size_t hdr_offs = buf.size();
 		unpack_object("", desc, buf, rs[0]);
+		if (opid == ROOT_OPID) {
+		    dbs_object_header* hdr = (dbs_object_header*)(&buf + hdr_offs);
+		    hdr->set_cpid(cpid);
+		}
 	}
 	session.commit();
 }
@@ -784,16 +793,17 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		dbs_object_header* hdr = (dbs_object_header*)ptr;
 		opid_t opid = hdr->get_opid();
 		cpid_t cpid = hdr->get_cpid();		
+		int flags = hdr->get_flags();
 		assert(cpid != RAW_CPID);
 		if (opid == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
 				txn->prepared("add_root")(cpid).exec();
+				flags |= tof_new;
 			} else { 
 				txn->prepared("set_root")(cpid).exec();
 			}
 		}			
-		int flags = hdr->get_flags();
 		class_descriptor* desc = lookup_class(cpid);
 		assert(opid != 0);
 		char* src_refs = (char*)(hdr+1);
@@ -807,7 +817,8 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 			
 			size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
 			assert(left == 0);
-			stmt.exec();
+			result r = stmt.exec();
+			assert(r.affected_rows() == 1);
 		}
 		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}

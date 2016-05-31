@@ -20,7 +20,7 @@ INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/Dimensio
 
 all: GoodsSample
 
-GoodsSample: $(OBJS)
+GoodsSample: $(OBJS) ../goods/lib/libclient.a
 	$(LD) $(LDFLAGS) -o GoodsSample $(OBJS) ../goods/lib/libclient.a -lpqxx -lz
 
 pgsql_storage.o: goods-diff/pgsql_storage.cxx goods-diff/pgsql_storage.h
