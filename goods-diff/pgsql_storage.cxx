@@ -527,7 +527,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 		unpackref(mbr_obj_sid, mbr_obj_opid, &buf + hdr_offs + sizeof(dbs_object_header) + sizeof(dbs_reference_t)*3);
 		cpid_t cpid = GET_CID(mbr_obj_opid);
 		std::string table_name = get_table(lookup_class(cpid));
-		result rs = txn->prepared(table_name  + "loadset")(opid)(max_preloaded_set_members).exec();
+		result rs = txn->prepared(table_name  + "_loadset")(opid)(max_preloaded_set_members).exec();
 		load_query_result(rs, buf);
 	}
 }
