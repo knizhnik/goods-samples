@@ -341,14 +341,17 @@ void pgsql_storage::unlock(opid_t opid, lck_t lck)
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
+	pgsql_session session(this);
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
 	binarystring desc = binarystring(rs[0][0]);
 	memcpy(buf.put(desc.size()), desc.data(), desc.size());
+	session.commit();
 }
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
+	pgsql_session session(this);
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
 	std::string buf((char*)dbs_desc, dbs_desc_size);	
@@ -360,6 +363,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
 	txn->prepared("put_class")(cpid)(name)(txn->esc_raw(buf)).exec();	
+	session.commit();
 	return cpid;
 }
 
