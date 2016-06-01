@@ -73,7 +73,37 @@ static std::string get_port(std::string const& address)
 static char const* map_type(field_descriptor* field)
 {
 	if (field->loc.n_items != 1) { // right now we support only char[] for varying part
-		return "text";
+		switch (field->loc.type) { 
+		  case fld_signed_integer:
+		  case fld_unsigned_integer:
+			switch (field->loc.size) {
+			  case 1:
+				return "text";
+			  case 2:
+				return "smallint[]";
+			  case 4:
+				return "integer[]";
+			  case 8:
+				return "bigint[]";
+			  default:
+				assert(false);
+			}
+			break;
+		  case fld_real:
+			switch (field->loc.size) { 
+			  case 4:
+				return "real[]";
+			  case 8:
+				return "double precision[]";
+			  default:
+				assert(false);
+			}
+			break;
+		  case fld_reference:
+			return "bigint[]";
+		  default:
+			assert(false);
+		}
 	}
 	switch (field->loc.type) { 
 	case fld_unsigned_integer:
@@ -184,8 +214,8 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
 	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
 	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 order by key limit 1");
-	con->prepare("index_drop", "delete from set_member where owner=$1");
-	con->prepare("index_del", "delete from set_member where owner=$1 and opid=$2");
+	con->prepare("index_drop", "update set_member set owner=0 where owner=$1");
+	con->prepare("index_del", "update set_member set owner=0 where owner=$1 and opid=$2");
 
 	con->prepare("hash_put", "insert into dict_entry (owner,name,value) values ($1,$2,$3)");
 	con->prepare("hash_get", "select value from dict_entry where owner=$1 and name=$2");
@@ -253,7 +283,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					}
 				}													
 				sql << ")";
-				printf("%s\n", sql.str().c_str());
+				//printf("%s\n", sql.str().c_str());
 				txn.exec(sql.str());			   
 
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
@@ -367,18 +397,41 @@ class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 	return desc;
 }
 
+static void unpack_array_of_reference(dnm_buffer& buf, result::tuple const& record) 
+{
+	result::tuple::reference col(record["array"]);
+	std::string str = col.as(std::string());
+	char const* src = &str[0];
+	int n_items = 0;
+	assert(*src == '{');
+	src += 1;
+	if (*src != '}') { 
+		do { 
+			opid_t opid;
+			int n;
+			int rc = sscanf(src, "%u%n", &opid, &n);
+			assert(rc == 1);
+			packref(buf.append(sizeof(dbs_reference_t)), 0, opid);
+			src += n;
+			n_items += 1;
+		} while (*src++ == ',');
+		assert(*--src == '}');
+	}
+	pack4(buf.append(4), n_items);
+}
+
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
-							dnm_buffer& buf, result::tuple const& record, size_t n_refs, int inheritance_depth)
+							dnm_buffer& buf, result::tuple const& record, size_t refs_offs, int inheritance_depth)
 {
 	if (first == NULL) {
-		return n_refs;
+		return refs_offs;
 	}
 
 	field_descriptor* field = first;
     do { 
 		if (field->loc.type == fld_structure) { 
 			assert(field->loc.n_items == 1);
-			n_refs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, n_refs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
+			refs_offs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, refs_offs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else {
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
 			assert(!col.is_null() || field->loc.type == fld_string);
@@ -417,7 +470,8 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 				switch(field->loc.type) { 
 				  case fld_reference:
 				  {
-					  char* dst = (char*)((dbs_reference_t*)(&buf + sizeof(dbs_object_header)) + n_refs++);
+					  char* dst = &buf + refs_offs;
+					  refs_offs += sizeof(dbs_reference_t);
 					  opid_t opid = col.as(opid_t());
 					  packref(dst, 0, opid);
 					  break;			  
@@ -498,7 +552,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
         field = (field_descriptor*)field->next;
     } while (field != first);
 
-	return n_refs;
+	return refs_offs;
 }
 
 void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
@@ -511,14 +565,11 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	hdr->set_sid(0);
 	hdr->set_flags(0);
                 
-	if (desc == &ExternalBlob::self_class) { 
-		result rs = txn->prepared("read_file")(opid).exec();
-		assert(rs.size() == 1);
-		binarystring blob(rs[0][0]);
-		memcpy(buf.append(blob.size()), blob.data(), blob.size());
-	} else { 		
-		size_t n_refs = unpack_struct(prefix, desc->fields, buf, record, 0, get_inheritance_depth(desc));
-		assert(n_refs == desc->n_fixed_references);
+	if (desc == &ArrayOfObject::self_class) { 
+		unpack_array_of_reference(buf, record);
+	} else { 
+		size_t refs_offs = unpack_struct(prefix, desc->fields, buf, record, hdr_offs + sizeof(dbs_object_header), get_inheritance_depth(desc));
+		assert(refs_offs == hdr_offs + sizeof(dbs_object_header) + sizeof(dbs_reference_t)*desc->n_fixed_references);
 	}
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
 	hdr->set_size(buf.size() - hdr_offs - sizeof(dbs_object_header));
@@ -593,14 +644,27 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 			assert(rs.size() == 1);
 			cpid = (cpid_t)rs[0][0].as(int());
 		}
-		class_descriptor* desc = lookup_class(cpid);		
-		result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
-		assert(rs.size() == 1);
-		size_t hdr_offs = buf.size();
-		unpack_object("", desc, buf, rs[0]);
-		if (opid == ROOT_OPID) {
-		    dbs_object_header* hdr = (dbs_object_header*)(&buf + hdr_offs);
-		    hdr->set_cpid(cpid);
+		class_descriptor* desc = lookup_class(cpid);
+		if (desc == &ExternalBlob::self_class) { 
+			result rs = txn->prepared("read_file")(opid).exec();
+			assert(rs.size() == 1);
+			binarystring blob(rs[0][0]);
+			dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + blob.size()); 
+			hdr->set_opid(opid);		
+			hdr->set_cpid(GET_CID(opid));
+			hdr->set_sid(0);
+			hdr->set_flags(0);
+			hdr->set_size(blob.size()); 
+			memcpy(hdr+1, blob.data(), blob.size());
+		} else { 
+			result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
+			assert(rs.size() == 1);
+			size_t hdr_offs = buf.size();
+			unpack_object("", desc, buf, rs[0]);
+			if (opid == ROOT_OPID) {
+				dbs_object_header* hdr = (dbs_object_header*)(&buf + hdr_offs);
+				hdr->set_cpid(cpid);
+			}
 		}
 	}
 	session.commit();
@@ -631,18 +695,59 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 	field_descriptor* field = first;	
     do { 
 		if (field->loc.n_items != 1) { 
-			assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
-			if (field->loc.n_items == 0) {
-				std::string val(src_bins, size);
-				assert((field->flags & fld_binary) != 0 || val[0] >= 0);
-				stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
-				src_bins += size;
-				size = 0;
-			} else { 
-				std::string val(src_bins, field->loc.n_items);
-				stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
-				src_bins += field->loc.n_items;
-				size -= field->loc.n_items;
+			switch (field->loc.type) { 
+			  case fld_signed_integer:
+			  case fld_unsigned_integer:
+				assert(field->loc.size == 1);
+				if (field->loc.n_items == 0) {
+					std::string val(src_bins, size);
+					assert((field->flags & fld_binary) != 0 || val[0] >= 0);
+					stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+					src_bins += size;
+					size = 0;
+				} else { 
+					std::string val(src_bins, field->loc.n_items);
+					stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+					src_bins += field->loc.n_items;
+					size -= field->loc.n_items;
+				}
+				break;
+			  case fld_reference:
+			  {
+				  std::stringstream buf;
+				  buf << '{';
+				  if (field->loc.n_items == 0) {
+					  size_t n_refs = size / sizeof(dbs_reference_t);
+					  assert(n_refs*sizeof(dbs_reference_t) == size);
+					  for (size_t i = 0; i < n_refs; i++) { 
+						  opid_t opid;
+						  stid_t sid;
+						  src_refs = unpackref(sid, opid, src_refs);
+						  if (i != 0) {
+							  buf << ',';
+						  }
+						  buf << opid;
+					  }
+					  size = 0;
+				  } else { 
+					  size_t n_refs = field->loc.n_items;
+					  size -= n_refs*sizeof(dbs_reference_t);
+					  for (size_t i = 0; i < n_refs; i++) { 
+						  opid_t opid;
+						  stid_t sid;
+						  src_refs = unpackref(sid, opid, src_refs);
+						  if (i != 0) {
+							  buf << ',';
+						  }
+						  buf << opid;
+					  }
+				  }
+				  buf << '}';
+				  stmt(buf.str());
+				  break;		
+			  }
+			  default:
+				assert(false);
 			}
 		} else {
 			switch(field->loc.type) { 
@@ -809,14 +914,15 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		class_descriptor* desc = lookup_class(cpid);
 		assert(opid != 0);
 		char* src_refs = (char*)(hdr+1);
-		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
+		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t) 
+			+ (desc->n_varying_references ? (hdr->get_size() - desc->packed_fixed_size)/desc->varying_size*desc->n_varying_references*sizeof(dbs_reference_t) : 0);
 		if (desc == &ExternalBlob::self_class) { 
 			std::string blob(src_bins, hdr->get_size());
-			txn->prepared("write_file")(opid)(txn->esc_raw(blob)).exec();
+			txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
 		} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
 			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 			stmt(opid);
-			
+			//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
 			size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
 			assert(left == 0);
 			result r = stmt.exec();
@@ -825,6 +931,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
 	txn->commit();
+	//printf("Commit transaction\n");
 	delete txn;
 	txn = NULL;
 	// cleanup cache after transaction commit to avoid deteriorated object instances because we do not have invalidation mechanism for PsotgreSQL
@@ -835,6 +942,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 void pgsql_storage::rollback_transaction()
 {
 	txn->abort();
+	//printf("Abort transaction\n");
 	delete txn;
 	txn = NULL;
 }	
@@ -972,6 +1080,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 {
 	pgsql_storage* pg = get_storage(this);
 	pgsql_storage::pgsql_session session(pg);
+	//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
 	pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();	
 	set_owner::remove(mbr);
 	session.commit();
@@ -982,6 +1091,7 @@ void pgsql_index::clear()
 	pgsql_storage* pg = get_storage(this);
 	pgsql_storage::pgsql_session session(pg);
 	pg->statement("index_drop")(hnd->opid).exec();	
+	//printf("Drop index %d\n", hnd->opid);
     last = NULL;
     first = NULL;
 	n_members = 0;
