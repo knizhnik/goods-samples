@@ -569,7 +569,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	hdr->set_sid(0);
 	hdr->set_flags(0);
                 
-	if (desc == &ArrayOfObject::self_class) { 
+	if (desc->n_varying_references != 0) { 
 		unpack_array_of_reference(buf, record);
 	} else { 
 		size_t refs_offs = unpack_struct(prefix, desc->fields, buf, record, hdr_offs + sizeof(dbs_object_header), get_inheritance_depth(desc));
