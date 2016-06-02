@@ -338,20 +338,26 @@ void pgsql_storage::unlock(opid_t opid, lck_t lck)
 {
 }
 
+void pgsql_storage::start_transaction()
+{
+	if (txn == NULL && con != NULL) { 
+		txn = new work(*con);
+	}
+}
+
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
-	pgsql_session session(this);
+	start_transaction();
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
 	binarystring desc = binarystring(rs[0][0]);
 	memcpy(buf.put(desc.size()), desc.data(), desc.size());
-	session.commit();
 }
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
-	pgsql_session session(this);
+	start_transaction();
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
 	std::string buf((char*)dbs_desc, dbs_desc_size);	
@@ -363,7 +369,6 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
 	txn->prepared("put_class")(cpid)(name)(txn->esc_raw(buf)).exec();	
-	session.commit();
 	return cpid;
 }
 
@@ -610,7 +615,7 @@ opid_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
-	pgsql_session session(this);
+	start_transaction();
 	load(next_mbr, flags, buf);
 	stid_t sid;
 	opid_t opid;
@@ -623,13 +628,12 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
-	session.commit();
 }
 
 void pgsql_storage::load(opid_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
-	pgsql_session session(this);
+	start_transaction();
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
 		opid_t opid = opp[i];
@@ -671,7 +675,6 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 			}
 		}
 	}
-	session.commit();
 }
 
 void pgsql_storage::forget_object(opid_t opid)
@@ -686,8 +689,7 @@ void pgsql_storage::throw_object(opid_t opid)
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
 	buf.put(0);
-	assert(txn == NULL && con != NULL);
-	txn = new work(*con);
+	start_transaction();
 }
 
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
@@ -995,12 +997,13 @@ inline pgsql_storage* get_storage(object const* obj)
 
 invocation pgsql_storage::statement(char const* name)
 {
+	start_transaction();
 	return txn->prepared(name);
 }
 
 ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, std::string const& key)
 {
-	pgsql_session session(this);
+	start_transaction();
 	result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 	size_t size = rs.size();
 	if (size == 0) { 
@@ -1086,24 +1089,20 @@ void pgsql_index::insert(ref<set_member> mbr)
 void pgsql_index::remove(ref<set_member> mbr)
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
 	pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();	
 	set_owner::remove(mbr);
-	session.commit();
 }
 
 void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	pg->statement("index_drop")(hnd->opid).exec();	
 	//printf("Drop index %d\n", hnd->opid);
     last = NULL;
     first = NULL;
 	n_members = 0;
 	obj = NULL;
-	session.commit();
 }
 
 
@@ -1121,7 +1120,6 @@ field_descriptor& pgsql_dictionary::describe_components()
 void pgsql_dictionary::put(const char* name, anyref obj)
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	hnd_t obj_hnd = obj->get_handle();
 	if (obj_hnd->opid == 0) { 
 		object_monitor::lock_global();
@@ -1129,30 +1127,25 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 		object_monitor::unlock_global();
 	}
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
-	session.commit();
 }
 
 anyref pgsql_dictionary::get(const char* name) const
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	result rs = pg->statement("hash_get")(hnd->opid)(name).exec();
 	anyref ref;
 	if (rs.empty()) { 
 		return NULL;
 	}
 	((database*)get_database())->get_object(ref, rs[0][0].as(opid_t()), 0);
-	session.commit();
 	return ref;
 }
 
 boolean pgsql_dictionary::del(const char* name) 
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	result rs = pg->statement("hash_delall")(hnd->opid)(name).exec();
 	boolean found = rs.affected_rows() != 0;
-	session.commit();
 	return found;
 }
 
@@ -1163,10 +1156,8 @@ boolean pgsql_dictionary::del(const char* name, anyref obj)
 	if (obj_hnd == NULL) { 
 		return false;
 	}
-	pgsql_storage::pgsql_session session(pg);
 	result rs = pg->statement("hash_del")(hnd->opid)(name)(obj_hnd->opid).exec();
 	bool found = rs.affected_rows() != 0;
-	session.commit();
 	return found;
 }
 
@@ -1178,18 +1169,14 @@ anyref pgsql_dictionary::apply(hash_item::item_function) const
 void pgsql_dictionary::reset()
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	pg->statement("hash_drop")(hnd->opid).exec();
-	session.commit();
 }
 
 size_t pgsql_dictionary::get_number_of_elements() const
 {
 	pgsql_storage* pg = get_storage(this);
-	pgsql_storage::pgsql_session session(pg);
 	result rs = pg->statement("hash_size")(hnd->opid).exec();
 	assert(rs.size() == 1);
 	int64_t n_elems = rs[0][0].as(int64_t());
-	session.commit();
 	return n_elems;
 }

@@ -47,32 +47,6 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t max_preloaded_set_members;
 
   public:
-    class pgsql_session {
-    public:
-	pgsql_storage* sto;
-	bool autocommit;
-
-	pgsql_session(pgsql_storage* s) : sto(s), autocommit(false) {
-	    if (sto->txn == NULL) { 
-		sto->txn = new work(*s->con);
-		autocommit = true;
-	    }
-	}
-	
-	void commit() { 
-	    if (autocommit) { 
-		sto->txn->commit();
-	    }
-	}
-
-	~pgsql_session() { 
-	    if (autocommit) { 
-		delete sto->txn;
-		sto->txn = NULL;
-	    }
-	}
-    };
-
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	
     virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
@@ -195,6 +169,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     void hash_drop(opid_t hash);
     void hash_size(opid_t hash);
     void create_table(class_descriptor* desc);
+    void start_transaction();
 };
 
 
