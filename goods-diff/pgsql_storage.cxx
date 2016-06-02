@@ -945,10 +945,13 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 
 void pgsql_storage::rollback_transaction()
 {
-	txn->abort();
-	//printf("Abort transaction\n");
-	delete txn;
-	txn = NULL;
+	if (txn != NULL) { 
+		txn->abort();
+		//printf("Abort transaction\n");
+		delete txn;
+		txn = NULL;
+	}
+	cache_manager::instance.invalidate_cache(); 
 }	
 	
 void pgsql_storage::commit_transaction(stid_t      coordinator, 
