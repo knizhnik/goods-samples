@@ -229,7 +229,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
-			if (cls == &object::self_class) { 
+			if (cls == &object::self_class || cls->mop->is_transient()) { 
 				continue;
 			}
 			std::vector<std::string> columns;
@@ -272,7 +272,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				// for all derived classes
 				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
 					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-						if (derived != cls && !is_btree(derived->name)) {
+						if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()) {
 							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 								if (base == cls) { 
 									define_table_columns(columns, "", derived->fields, sql, -1);
