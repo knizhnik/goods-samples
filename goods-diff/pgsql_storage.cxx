@@ -19,8 +19,8 @@
 class_descriptor* get_root_class(class_descriptor* desc)
 {
 	while (desc->base_class != &object::self_class 
-		   && !(desc->class_attr & CLASS_HIERARCHY_ROOT) 
-		   && !(desc->base_class->class_attr & CLASS_HIERARCHY_SUPER_ROOT)) 
+		   && !(desc->class_attr & class_descriptor::cls_hierarchy_root) 
+		   && !(desc->base_class->class_attr & class_descriptor::cls_hierarchy_super_root)) 
 	{ 
 		desc = desc->base_class;
 	}
@@ -74,8 +74,21 @@ static char const* map_type(field_descriptor* field)
 {
 	if (field->loc.n_items != 1) { // right now we support only char[] for varying part
 		switch (field->loc.type) { 
-		  case fld_signed_integer:
 		  case fld_unsigned_integer:
+			switch (field->loc.size) {
+			  case 1:
+				return "bytea";
+			  case 2:
+				return "smallint[]";
+			  case 4:
+				return "integer[]";
+			  case 8:
+				return "bigint[]";
+			  default:
+				assert(false);
+			}
+			break;
+		  case fld_signed_integer:
 			switch (field->loc.size) {
 			  case 1:
 				return "text";
@@ -100,7 +113,7 @@ static char const* map_type(field_descriptor* field)
 			}
 			break;
 		  case fld_reference:
-			return "bigint[]";
+			return "objrefs";
 		  default:
 			assert(false);
 		}
@@ -183,6 +196,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	try {
 		work txn(*con);	
 		txn.exec("create domain objref as bigint");
+		txn.exec("create domain objrefs as bigint[]");
 		txn.commit();
 	} catch (pqxx_exception const&x) {} // ignore error if domain alreqady exists
 
@@ -229,7 +243,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
-			if (cls == &object::self_class || cls->mop->is_transient()) { 
+			if (cls == &object::self_class || cls->mop->is_transient() || (cls->class_attr & class_descriptor::cls_non_relational) || (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) { 
 				continue;
 			}
 			std::vector<std::string> columns;
@@ -445,8 +459,8 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
 			assert(!col.is_null() || field->loc.type == fld_string);
 			if (field->loc.n_items != 1) { 
-				assert(field->loc.type == fld_signed_integer && field->loc.size == 1);
-				if (field->flags & fld_binary) {
+				assert(field->loc.size == 1);
+				if ((field->flags & fld_binary) || field->loc.type == fld_unsigned_integer) {
 					binarystring blob(col);
 					if (field->loc.n_items == 0) { 
 						char* dst = buf.append(blob.size());
@@ -692,6 +706,25 @@ void pgsql_storage::begin_transaction(dnm_buffer& buf)
 	start_transaction();
 }
 
+static void store_array_of_references(invocation& stmt, char* src_refs, char* src_bins)
+{
+	int n_refs = unpack4(src_bins);
+	stmt(n_refs);
+	std::stringstream buf;
+	buf << '{';
+	for (int i = 0; i < n_refs; i++) { 
+		opid_t opid;
+		stid_t sid;
+		src_refs = unpackref(sid, opid, src_refs);
+		if (i != 0) {
+			buf << ',';
+		}
+		buf << opid;
+	}
+	buf << '}';
+	stmt(buf.str());
+}
+
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
 {
 	if (first == NULL) {
@@ -702,8 +735,21 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
     do { 
 		if (field->loc.n_items != 1) { 
 			switch (field->loc.type) { 
-			  case fld_signed_integer:
 			  case fld_unsigned_integer:
+				if (field->loc.n_items == 0) {
+					std::string val(src_bins, size);
+					stmt(txn->esc_raw(val));
+					src_bins += size;
+					size = 0;
+				} else { 
+					std::string val(src_bins, field->loc.n_items);
+					stmt(txn->esc_raw(val));
+					src_bins += field->loc.n_items;
+					size -= field->loc.n_items;
+				}
+				break;
+				
+			  case fld_signed_integer:
 				assert(field->loc.size == 1);
 				if (field->loc.n_items == 0) {
 					std::string val(src_bins, size);
@@ -718,40 +764,6 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					size -= field->loc.n_items;
 				}
 				break;
-			  case fld_reference:
-			  {
-				  std::stringstream buf;
-				  buf << '{';
-				  if (field->loc.n_items == 0) {
-					  size_t n_refs = size / sizeof(dbs_reference_t);
-					  assert(n_refs*sizeof(dbs_reference_t) == size);
-					  for (size_t i = 0; i < n_refs; i++) { 
-						  opid_t opid;
-						  stid_t sid;
-						  src_refs = unpackref(sid, opid, src_refs);
-						  if (i != 0) {
-							  buf << ',';
-						  }
-						  buf << opid;
-					  }
-					  size = 0;
-				  } else { 
-					  size_t n_refs = field->loc.n_items;
-					  size -= n_refs*sizeof(dbs_reference_t);
-					  for (size_t i = 0; i < n_refs; i++) { 
-						  opid_t opid;
-						  stid_t sid;
-						  src_refs = unpackref(sid, opid, src_refs);
-						  if (i != 0) {
-							  buf << ',';
-						  }
-						  buf << opid;
-					  }
-				  }
-				  buf << '}';
-				  stmt(buf.str());
-				  break;		
-			  }
 			  default:
 				assert(false);
 			}
@@ -920,8 +932,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		class_descriptor* desc = lookup_class(cpid);
 		assert(opid != 0);
 		char* src_refs = (char*)(hdr+1);
-		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t) 
-			+ (desc->n_varying_references ? (hdr->get_size() - desc->packed_fixed_size)/desc->varying_size*desc->n_varying_references*sizeof(dbs_reference_t) : 0);
+		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
 		if (desc == &ExternalBlob::self_class) { 
 			std::string blob(src_bins, hdr->get_size());
 			txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
@@ -929,8 +940,13 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
 			stmt(opid);
 			//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
-			size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
-			assert(left == 0);
+			if (desc->n_varying_references != 0) { 
+				src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
+				store_array_of_references(stmt, src_refs, src_bins);
+			} else { 
+				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
+				assert(left == 0);
+			}
 			result r = stmt.exec();
 			assert(r.affected_rows() == 1);
 		}

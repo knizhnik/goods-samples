@@ -27,13 +27,6 @@ using namespace pqxx::prepare;
 BEGIN_GOODS_NAMESPACE
 
 const size_t OPID_BUF_SIZE = 64;
-//
-// Class attributes flag, which should be set using REGISTER_EX macro
-// for classes which should be considered as roots of inheritance hierarchy.
-// Separate table will be created for such class (shared by all inherited classes)
-//
-const int CLASS_HIERARCHY_ROOT = 2; 
-const int CLASS_HIERARCHY_SUPER_ROOT = 4; 
 
 //
 // This class provides bridge to PostgreSQL
