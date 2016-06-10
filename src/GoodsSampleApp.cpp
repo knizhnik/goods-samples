@@ -30,7 +30,7 @@ static db::db_filler::FillDatabaseData CreateFillData()
 {
 	db::db_filler::FillDatabaseData fill_data;
 
-	fill_data.WarehouseReceiptCount = 10;
+	fill_data.WarehouseReceiptCount = 1000;
 	fill_data.MaxItemsPerWarehouseReceipt = 30;
 
 	return fill_data;
