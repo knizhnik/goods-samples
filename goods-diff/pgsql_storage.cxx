@@ -204,13 +204,12 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	txn.exec("create extension if not exists external_file");
 
-	txn.exec("create table if not exists dict_entry(owner objref, name text, value objref)");
+	txn.exec("create table if not exists dict_entry(owner objref, name text, value objref) with oids");
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea)");
 	txn.exec("create table if not exists root_class(cpid integer)");
 
-	txn.exec("create index if not exists dict_key_index on dict_entry(name)");
-	txn.exec("create index if not exists dict_owner_index on dict_entry(owner)");
+	txn.exec("create index if not exists dict_index on dict_entry(owner,name)");
 	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
 	txn.exec("create index if not exists set_member_prev on set_member(prev)");
@@ -285,13 +284,15 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
 
 				// for all derived classes
-				for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
-					for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-						if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()) {
-							for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
-								if (base == cls) { 
-									define_table_columns(columns, "", derived->fields, sql, -1);
-									break;
+				if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
+					for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
+						for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
+							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()) {
+								for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
+									if (base == cls) { 
+										define_table_columns(columns, "", derived->fields, sql, -1);
+										break;
+									}
 								}
 							}
 						}
@@ -597,7 +598,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	}
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
 	hdr->set_size(buf.size() - hdr_offs - sizeof(dbs_object_header));
-
+#if 0
 	if (desc == &set_member::self_class && prefix.size() == 0) { 
 		opid_t mbr_obj_opid;
 		stid_t mbr_obj_sid;
@@ -608,6 +609,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 		result rs = txn->prepared(table_name  + "_loadset")(opid)(max_preloaded_set_members).exec();
 		load_query_result(rs, buf);
 	}
+#endif
 }
 
 opid_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
@@ -1181,6 +1183,7 @@ boolean pgsql_dictionary::del(const char* name, anyref obj)
 anyref pgsql_dictionary::apply(hash_item::item_function) const
 {
 	assert(false);
+	return NULL;
 }
 
 void pgsql_dictionary::reset()
