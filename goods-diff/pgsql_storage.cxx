@@ -204,12 +204,11 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	txn.exec("create extension if not exists external_file");
 
-	txn.exec("create table if not exists dict_entry(owner objref, name text, value objref) with oids");
+	txn.exec("create table if not exists dict_entry(owner objref, name text, value objref, primary key(owner,name))");
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea)");
 	txn.exec("create table if not exists root_class(cpid integer)");
 
-	txn.exec("create index if not exists dict_index on dict_entry(owner,name)");
 	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
 	txn.exec("create index if not exists set_member_prev on set_member(prev)");
@@ -231,7 +230,8 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("index_drop", "update set_member set owner=0 where owner=$1");
 	con->prepare("index_del", "update set_member set owner=0 where owner=$1 and opid=$2");
 
-	con->prepare("hash_put", "insert into dict_entry (owner,name,value) values ($1,$2,$3)");
+	con->prepare("hash_put", "insert into dict_entry (owner,name,value) values ($1,$2,$3) "
+				 "on conflict (owner,name) do update set value=$3 where dict_entry.owner=$1 and dict_entry.name=$2");
 	con->prepare("hash_get", "select value from dict_entry where owner=$1 and name=$2");
 	con->prepare("hash_delall", "delete from dict_entry where owner=$1 and name=$2");
 	con->prepare("hash_del", "delete from dict_entry where owner=$1 and name=$2 and value=$3");
