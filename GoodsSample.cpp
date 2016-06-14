@@ -22,7 +22,8 @@ int main(int argc, char* argv[])
 #endif
 {
 	CGoodsSampleApp app;
-
+	time_t start = time(NULL);
+ 
 	if (argc < 1)
 	{
 		console::output("Invalid arguments...\n");
@@ -44,6 +45,7 @@ int main(int argc, char* argv[])
 	app.run();
 	app.close();
 
+	console::output("overall time %d sec\n", time(NULL) - start);
 #ifdef _WIN32
 	system("pause");
 #endif	

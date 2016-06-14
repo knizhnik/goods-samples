@@ -42,9 +42,17 @@ void CGoodsSampleApp::run()
 
 	// -- ensure database structure creation
 	auto db_root = db::GetDatabaseRoot();
-
+ 
+	time_t start = time(NULL);
 	db::db_filler::FillDatabase(CreateFillData());
+	console::output("time for insertion %d sec\n", time(NULL) - start);
+      
+	start = time(NULL);
 	db::db_filler::TestIntegrity();
+	console::output("time for integrity check %d sec\n", time(NULL) - start);
+ 
+	start = time(NULL);
 	db::db_filler::DeleteAll();
+	console::output("time for deletion %d sec\n", time(NULL) - start);
 }
 
