@@ -2,18 +2,6 @@
 #include "pgsql_storage.h"
 
 
-// GOODS object identifier consists of 32-bit OPID and 16-bit STID.
-// GOODS ORM for PostgreSQL only support work with one storage, so we will not store STID.
-// But in  PostgreSQL we want to include in identifier object type information (CPID) to
-// make it possible to detect object type without prior loading it.
-// Right now we include CPID into 32-bit OPID for compatibility reasons.
-// In future we are going to extend opid_t to 64-bits. There will be no more limitation 
-// for maximal number of classes
-#define MAX_CLASSES 256
-#define GET_CID(x) ((x) % MAX_CLASSES)
-#define GET_OID(x) ((x) / MAX_CLASSES)
-#define MAKE_OPID(cid,oid) ((oid)*MAX_CLASSES + (cid))
-
 #define MAX_KEY_SIZE 4096
 
 class_descriptor* get_root_class(class_descriptor* desc)
@@ -321,13 +309,13 @@ void pgsql_storage::close()
 
 
 void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
-								  opid_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
+								  objref_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
 {
 	// Bulk allocate at obj_storage level is disabled 
 	assert(false);
 }
 
-opid_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith)
+objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith)
 {
 	if (opid_buf_pos == OPID_BUF_SIZE) { 
 		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
@@ -336,21 +324,21 @@ opid_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, opid_t clust
 		}
 		opid_buf_pos = 0;
 	}
-	return MAKE_OPID(cpid, opid_buf[opid_buf_pos++]);
+	return MAKE_OBJREF(cpid, opid_buf[opid_buf_pos++]);
 }
 
-void pgsql_storage::deallocate(opid_t opid)
+void pgsql_storage::deallocate(objref_t opid)
 { 
 	class_descriptor* desc = lookup_class(GET_CID(opid));
 	txn->prepared(get_table(desc) + "_delete")(opid).exec();
 }
 
-boolean pgsql_storage::lock(opid_t opid, lck_t lck, int attr)
+boolean pgsql_storage::lock(objref_t opid, lck_t lck, int attr)
 {
 	return true;
 }
 
-void pgsql_storage::unlock(opid_t opid, lck_t lck)
+void pgsql_storage::unlock(objref_t opid, lck_t lck)
 {
 }
 
@@ -398,7 +386,7 @@ void pgsql_storage::change_class(cpid_t cpid,
 }
 	
 																				 
-void pgsql_storage::load(opid_t opid, int flags, dnm_buffer& buf)
+void pgsql_storage::load(objref_t opid, int flags, dnm_buffer& buf)
 {
 	load(&opid, 1, flags, buf);
 }
@@ -432,9 +420,9 @@ static void unpack_array_of_reference(dnm_buffer& buf, result::tuple const& reco
 	src += 1;
 	if (*src != '}') { 
 		do { 
-			opid_t opid;
+			objref_t opid;
 			int n;
-			int rc = sscanf(src, "%u%n", &opid, &n);
+			int rc = sscanf(src, "%llu%n", &opid, &n);
 			assert(rc == 1);
 			packref(buf.append(sizeof(dbs_reference_t)), 0, opid);
 			src += n;
@@ -497,7 +485,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 				  {
 					  char* dst = &buf + refs_offs;
 					  refs_offs += sizeof(dbs_reference_t);
-					  opid_t opid = col.as(opid_t());
+					  objref_t opid = col.as(objref_t());
 					  packref(dst, 0, opid);
 					  break;			  
 				  }
@@ -584,8 +572,8 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 {
 	size_t hdr_offs = buf.size();
 	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
-	opid_t opid = record[prefix + "opid"].as(opid_t());
-	hdr->set_opid(opid);		
+	objref_t opid = record[prefix + "opid"].as(objref_t());
+	hdr->set_opid((opid_t)opid);		
 	hdr->set_cpid(GET_CID(opid));
 	hdr->set_sid(0);
 	hdr->set_flags(0);
@@ -600,7 +588,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	hdr->set_size(buf.size() - hdr_offs - sizeof(dbs_object_header));
 #if 0
 	if (desc == &set_member::self_class && prefix.size() == 0) { 
-		opid_t mbr_obj_opid;
+		objref_t mbr_obj_opid;
 		stid_t mbr_obj_sid;
 		// unpack referene of set_member::obj
 		unpackref(mbr_obj_sid, mbr_obj_opid, &buf + hdr_offs + sizeof(dbs_object_header) + sizeof(dbs_reference_t)*3);
@@ -612,12 +600,12 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 #endif
 }
 
-opid_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
+objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 {
-	opid_t next_mbr = 0;
+	objref_t next_mbr = 0;
 	for (result::const_iterator i = rs.begin(); i != rs.end(); ++i) {
 		result::tuple obj_record = *i;
-		opid_t obj_opid = obj_record["opid"].as(opid_t());
+		objref_t obj_opid = obj_record["opid"].as(objref_t());
 		class_descriptor* obj_desc = lookup_class(GET_CID(obj_opid));
 		size_t mbr_buf_offs = buf.size();
 		unpack_object("mbr_", &set_member::self_class, buf, obj_record);
@@ -630,12 +618,12 @@ opid_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 
 
-void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
+void pgsql_storage::query(objref_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
 	start_transaction();
 	load(next_mbr, flags, buf);
 	stid_t sid;
-	opid_t opid;
+	objref_t opid;
 	unpackref(sid, opid, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
 	cpid_t cpid = GET_CID(opid);
 	class_descriptor* desc = lookup_class(cpid);
@@ -647,15 +635,15 @@ void pgsql_storage::query(opid_t& next_mbr, char const* query, nat4 buf_size, in
 	next_mbr = load_query_result(rs, buf);
 }
 
-void pgsql_storage::load(opid_t* opp, int n_objects, 
+void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
 	start_transaction();
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
-		opid_t opid = opp[i];
+		objref_t opid = opp[i];
 		cpid_t cpid = GET_CID(opid);
-		if (opid == ROOT_OPID) { 
+		if ((opid_t)opid == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
 				dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header));
@@ -675,7 +663,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 			assert(rs.size() == 1);
 			binarystring blob(rs[0][0]);
 			dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + blob.size()); 
-			hdr->set_opid(opid);		
+			hdr->set_opid((opid_t)opid);		
 			hdr->set_cpid(GET_CID(opid));
 			hdr->set_sid(0);
 			hdr->set_flags(0);
@@ -686,7 +674,7 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 			assert(rs.size() == 1);
 			size_t hdr_offs = buf.size();
 			unpack_object("", desc, buf, rs[0]);
-			if (opid == ROOT_OPID) {
+			if ((opid_t)opid == ROOT_OPID) {
 				dbs_object_header* hdr = (dbs_object_header*)(&buf + hdr_offs);
 				hdr->set_cpid(cpid);
 			}
@@ -694,12 +682,12 @@ void pgsql_storage::load(opid_t* opp, int n_objects,
 	}
 }
 
-void pgsql_storage::forget_object(opid_t opid)
+void pgsql_storage::forget_object(objref_t opid)
 {
 }
 
 
-void pgsql_storage::throw_object(opid_t opid)
+void pgsql_storage::throw_object(objref_t opid)
 {
 }
 
@@ -716,7 +704,7 @@ static void store_array_of_references(invocation& stmt, char* src_refs, char* sr
 	std::stringstream buf;
 	buf << '{';
 	for (int i = 0; i < n_refs; i++) { 
-		opid_t opid;
+		objref_t opid;
 		stid_t sid;
 		src_refs = unpackref(sid, opid, src_refs);
 		if (i != 0) {
@@ -774,7 +762,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			switch(field->loc.type) { 
 			  case fld_reference:
 			  {
-				  opid_t opid;
+				  objref_t opid;
 				  stid_t sid;
 				  src_refs = unpackref(sid, opid, src_refs);
 				  size -= sizeof(dbs_reference_t);
@@ -919,11 +907,11 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	char* end = ptr + buf.size();
 	while (ptr < end) { 
 		dbs_object_header* hdr = (dbs_object_header*)ptr;
-		opid_t opid = hdr->get_opid();
+		objref_t opid = hdr->get_ref();
 		cpid_t cpid = hdr->get_cpid();		
 		int flags = hdr->get_flags();
 		assert(cpid != RAW_CPID);
-		if (opid == ROOT_OPID) { 
+		if ((opid_t)opid == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
 				txn->prepared("add_root")(cpid).exec();
@@ -931,6 +919,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 			} else { 
 				txn->prepared("set_root")(cpid).exec();
 			}
+			opid = ROOT_OPID;
 		}			
 		class_descriptor* desc = lookup_class(cpid);
 		assert(opid != 0);
@@ -1020,7 +1009,7 @@ invocation pgsql_storage::statement(char const* name)
 	return txn->prepared(name);
 }
 
-ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char const* op, std::string const& key)
+ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, char const* op, std::string const& key)
 {
 	start_transaction();
 	result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
@@ -1030,7 +1019,7 @@ ref<set_member> pgsql_storage::index_find(database const* db, opid_t index, char
 	}
 	assert(size == 1);
 	result::tuple record = rs[0];
-	opid_t opid = record[0].as(opid_t());
+	objref_t opid = record[0].as(objref_t());
 	ref<set_member> mbr;
 	((database*)db)->get_object(mbr, opid);
 	return mbr;
@@ -1156,7 +1145,7 @@ anyref pgsql_dictionary::get(const char* name) const
 	if (rs.empty()) { 
 		return NULL;
 	}
-	((database*)get_database())->get_object(ref, rs[0][0].as(opid_t()), 0);
+	((database*)get_database())->get_object(ref, rs[0][0].as(objref_t()), 0);
 	return ref;
 }
 

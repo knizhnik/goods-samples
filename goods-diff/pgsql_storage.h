@@ -42,13 +42,13 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
   public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
 	
-    virtual opid_t  allocate(cpid_t cpid, size_t size, int flags, opid_t clusterWith);
+    virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
-                                  opid_t opidBuf[], size_t nReservedOids, hnd_t clusterWith[]);
-    virtual void    deallocate(opid_t opid);
+                                  objref_t opidBuf[], size_t nReservedOids, hnd_t clusterWith[]);
+    virtual void    deallocate(objref_t opid);
 
-    virtual boolean lock(opid_t opid, lck_t lck, int attr);
-    virtual void    unlock(opid_t opid, lck_t lck);
+    virtual boolean lock(objref_t opid, lck_t lck, int attr);
+    virtual void    unlock(objref_t opid, lck_t lck);
     
     //
     // Get class descriptor by class identifier.
@@ -83,22 +83,22 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     // If there is no such object at server then "cpid" field of 
     // dbs_object_header is set to 0.
     //
-    virtual void    load(opid_t* opid, int n_objects, 
+    virtual void    load(objref_t* opid, int n_objects, 
                          int flags, dnm_buffer& buf);
 
-    virtual void    load(opid_t opid, int flags, dnm_buffer& buf);
+    virtual void    load(objref_t opid, int flags, dnm_buffer& buf);
 
 
-    virtual void    query(opid_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf);
+    virtual void    query(objref_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf);
 
     //
     // Inform server that client no more has reference to specified object
     // 
-    virtual void    forget_object(opid_t opid);
+    virtual void    forget_object(objref_t opid);
     //
     // Inform server that client no more has instance of specified object
     //
-    virtual void    throw_object(opid_t opid); 
+    virtual void    throw_object(objref_t opid); 
 
     //
     // Initiate transaction at server. Allocate place for transaction header
@@ -149,18 +149,18 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
     class_descriptor* lookup_class(cpid_t cpid);
     void unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record);
-    opid_t load_query_result(result& rs, dnm_buffer& buf);
+    objref_t load_query_result(result& rs, dnm_buffer& buf);
     size_t store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size);
 
     invocation statement(char const* name);
 
-    ref<set_member> index_find(database const* db, opid_t index, char const* op, std::string const& key);
-    void hash_put(opid_t hash, const char* name, opid_t opid);
-    opid_t hash_get(opid_t hash, const char* name);
-    bool hash_del(opid_t hash, const char* name);
-    bool hash_del(opid_t hash, const char* name, opid_t opid);
-    void hash_drop(opid_t hash);
-    void hash_size(opid_t hash);
+    ref<set_member> index_find(database const* db, objref_t index, char const* op, std::string const& key);
+    void hash_put(objref_t hash, const char* name, objref_t opid);
+    objref_t hash_get(objref_t hash, const char* name);
+    bool hash_del(objref_t hash, const char* name);
+    bool hash_del(objref_t hash, const char* name, objref_t opid);
+    void hash_drop(objref_t hash);
+    void hash_size(objref_t hash);
     void create_table(class_descriptor* desc);
     void start_transaction();
 };
