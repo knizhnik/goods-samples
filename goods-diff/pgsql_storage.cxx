@@ -320,7 +320,7 @@ objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t c
 	if (opid_buf_pos == OPID_BUF_SIZE) { 
 		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
 		for (size_t i = 0; i < OPID_BUF_SIZE; i++) { 
-			opid_buf[i] = rs[i][0].as(opid_t());
+			opid_buf[i] = rs[i][0].as(objref_t());
 		}
 		opid_buf_pos = 0;
 	}
@@ -573,9 +573,8 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	size_t hdr_offs = buf.size();
 	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
 	objref_t opid = record[prefix + "opid"].as(objref_t());
-	hdr->set_opid((opid_t)opid);		
+	hdr->set_ref(opid);		
 	hdr->set_cpid(GET_CID(opid));
-	hdr->set_sid(0);
 	hdr->set_flags(0);
                 
 	if (desc->n_varying_references != 0) { 
@@ -643,19 +642,18 @@ void pgsql_storage::load(objref_t* opp, int n_objects,
 	for (int i = 0; i < n_objects; i++) { 
 		objref_t opid = opp[i];
 		cpid_t cpid = GET_CID(opid);
-		if ((opid_t)opid == ROOT_OPID) { 
+		if (GET_OID(opid) == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
 				dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header));
-				hdr->set_opid(ROOT_OPID);		
+				hdr->set_ref(ROOT_OPID);		
 				hdr->set_cpid(RAW_CPID);
-				hdr->set_sid(id);
 				hdr->set_flags(0);
 				hdr->set_size(0);
 				continue;
 			}
 			assert(rs.size() == 1);
-			cpid = (cpid_t)rs[0][0].as(int());
+			cpid = rs[0][0].as(cpid_t());
 		}
 		class_descriptor* desc = lookup_class(cpid);
 		if (desc == &ExternalBlob::self_class) { 
@@ -663,9 +661,8 @@ void pgsql_storage::load(objref_t* opp, int n_objects,
 			assert(rs.size() == 1);
 			binarystring blob(rs[0][0]);
 			dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + blob.size()); 
-			hdr->set_opid((opid_t)opid);		
-			hdr->set_cpid(GET_CID(opid));
-			hdr->set_sid(0);
+			hdr->set_ref(opid);		
+			hdr->set_cpid(cpid);
 			hdr->set_flags(0);
 			hdr->set_size(blob.size()); 
 			memcpy(hdr+1, blob.data(), blob.size());
@@ -674,7 +671,7 @@ void pgsql_storage::load(objref_t* opp, int n_objects,
 			assert(rs.size() == 1);
 			size_t hdr_offs = buf.size();
 			unpack_object("", desc, buf, rs[0]);
-			if ((opid_t)opid == ROOT_OPID) {
+			if (GET_OID(opid) == ROOT_OPID) {
 				dbs_object_header* hdr = (dbs_object_header*)(&buf + hdr_offs);
 				hdr->set_cpid(cpid);
 			}
@@ -911,7 +908,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		cpid_t cpid = hdr->get_cpid();		
 		int flags = hdr->get_flags();
 		assert(cpid != RAW_CPID);
-		if ((opid_t)opid == ROOT_OPID) { 
+		if (GET_OID(opid) == ROOT_OPID) { 
 			result rs = txn->prepared("get_root").exec();
 			if (rs.empty()) { 
 				txn->prepared("add_root")(cpid).exec();

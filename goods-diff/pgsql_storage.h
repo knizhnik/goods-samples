@@ -34,8 +34,8 @@ const size_t OPID_BUF_SIZE = 64;
 class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage { 
     work* txn;
     connection* con;
-    opid_t opid_buf[OPID_BUF_SIZE];
-    size_t opid_buf_pos;
+    objref_t opid_buf[OPID_BUF_SIZE];
+    size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
 
