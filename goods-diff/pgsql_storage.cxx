@@ -275,7 +275,9 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
 					for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
 						for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()) {
+							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
+								&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
+							{
 								for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
 									if (base == cls) { 
 										define_table_columns(columns, "", derived->fields, sql, -1);
