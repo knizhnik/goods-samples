@@ -176,6 +176,24 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
     virtual ref<set_member> findGE(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> findGE(const char* str) const;
 
+    ref<set_member> find(const char* str, size_t len) const {
+	return find(str, len, (skey_t)0); // dummy key
+    }
+
+    ref<set_member> findGE(const char* str, size_t len) const {
+	return findGE(str, len, (skey_t)0); // dummy key
+    }
+
+    template<size_t key_size>
+    ref<set_member> findGE(const char* str, size_t len, strkey_t<key_size> key) const {
+	return findGE(str, len);
+    }
+
+    template<size_t key_size>
+    ref<set_member> find(const char* str, size_t len, strkey_t<key_size> key) const {
+	return find(str, len);
+    }
+
     virtual void insert(ref<set_member> mbr);
     virtual void remove(ref<set_member> mbr);
     virtual void clear();
