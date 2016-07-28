@@ -1039,52 +1039,72 @@ field_descriptor& pgsql_index::describe_components()
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string(str, len));
+	std::string strkey(str, len);
+	if (pg == NULL) { 
+		inmem_index_impl::const_iterator it = mem_index.find(strkey);
+		if (it == mem_index.end()) { 
+			return NULL;
+		}
+		return it->second;
+	}
+	return pg->index_find(get_database(), hnd->opid, "index_equal", strkey);
 }
 
 ref<set_member> pgsql_index::find(const char* str) const
 {
-	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string(str));
+	return find(str, strlen(str));
 }
 
 ref<set_member> pgsql_index::find(skey_t key) const
 {
-	pgsql_storage* pg = get_storage(this);
 	pack8(key);
-	return pg->index_find(get_database(), hnd->opid, "index_equal", std::string((char*)&key, sizeof key));
-}
-
-ref<set_member> pgsql_index::findGE(skey_t key) const
-{
-	pgsql_storage* pg = get_storage(this);
-	pack8(key);
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string((char*)&key, sizeof key));
+	return find((char*)&key, sizeof(key));
 }
 
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string(str, len));
+	std::string strkey(str, len);
+	if (pg == NULL) { 
+		inmem_index_impl::const_iterator it = mem_index.lower_bound(strkey);
+		if (it == mem_index.end()) { 
+			return NULL;
+		}
+		return it->second;
+	}
+	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", strkey);
 }
 	
+ref<set_member> pgsql_index::findGE(skey_t key) const
+{
+	pack8(key);
+	return findGE((char*)&key, sizeof(key));
+}
+
 ref<set_member> pgsql_index::findGE(const char* str) const
 {
-	pgsql_storage* pg = get_storage(this);
-	return pg->index_find(get_database(), hnd->opid, "index_greater_or_equal", std::string(str));
+	return findGE(str, strlen(str));
 }
 
 
 void pgsql_index::insert(ref<set_member> mbr)
 {
 	ref<set_member> next;
+	pgsql_storage* pg = get_storage(this);
 	if (&mbr->cls != &set_member::self_class) {
-		next = findGE(mbr->get_key());
+		skey_t key = mbr->get_key();
+		next = findGE(key);
+		if (pg == NULL) { 
+			mem_index.insert(std::pair< std::string, ref<set_member> >(std::string((char*)&key, sizeof(key)), mbr));
+		}			
 	} else { 
 		char key[MAX_KEY_SIZE];
 		size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
 		assert(keySize < MAX_KEY_SIZE);
 		next = findGE(key, keySize, 0); // skey is not used here
+		if (pg == NULL) { 
+			mem_index.insert(std::pair< std::string, ref<set_member> >(std::string(key, keySize), mbr));
+		}			
 	}
 	if (next.is_nil()) { 
 		put_last(mbr); 
@@ -1096,7 +1116,8 @@ void pgsql_index::insert(ref<set_member> mbr)
 void pgsql_index::remove(ref<set_member> mbr)
 {
 	pgsql_storage* pg = get_storage(this);
-	//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
+	assert (pg != NULL);
+		//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
 	pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();	
 	set_owner::remove(mbr);
 }
@@ -1104,7 +1125,11 @@ void pgsql_index::remove(ref<set_member> mbr)
 void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
-	pg->statement("index_drop")(hnd->opid).exec();	
+	if (pg != NULL) { 
+		pg->statement("index_drop")(hnd->opid).exec();	
+	} else { 
+		mem_index.clear();
+	}
 	//printf("Drop index %d\n", hnd->opid);
     last = NULL;
     first = NULL;

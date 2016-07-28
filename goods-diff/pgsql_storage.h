@@ -15,6 +15,9 @@
 #include "goods.h"
 #include "dbscls.h"
 
+#include <map>
+#include <string>
+
 #include <pqxx/connection>
 #include <pqxx/transaction>
 #include <pqxx/prepared_statement>
@@ -168,6 +171,9 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
 class GOODS_DLL_EXPORT pgsql_index : public B_tree
 {
+    typedef std::multimap< std::string, ref<set_member> > inmem_index_impl;
+    inmem_index_impl mem_index;
+
   public:
     virtual ref<set_member> find(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> find(const char* str) const;
