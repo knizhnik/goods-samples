@@ -999,7 +999,8 @@ void pgsql_storage::del_user(char const* login){}
 
 inline pgsql_storage* get_storage(object const* obj) 
 {
-	return (pgsql_storage*)obj->get_handle()->storage->storage;
+	obj_storage* os = obj->get_handle()->storage;
+	return os ? (pgsql_storage*)os->storage : NULL;
 }
 
 invocation pgsql_storage::statement(char const* name)
