@@ -27,7 +27,7 @@ field_descriptor& CDatabaseRoot::describe_components()
 ref<CDatabaseRoot> CDatabaseRoot::create() const
 {
 	ref<CDatabaseRoot> root = this;
-	modify(root)->become(NEW CDatabaseRoot());
+	modify(root)->become(NEW CDatabaseRoot(root));
 	modify(root)->SetupNewDatabase();
 	return root;
 }
@@ -38,5 +38,5 @@ void CDatabaseRoot::SetupNewDatabase()
 	m_ItemDefinitions = CItemDefinitionList::create(this);
 	m_WarehouseItems = CWarehouseItemList::create(this);
 	m_WarehouseReceipts = CWarehouseReceiptList::create(this);
-	m_GlobalIndex = CGlobalIndex::create();
+	m_GlobalIndex = CGlobalIndex::create(this);
 }

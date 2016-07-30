@@ -246,10 +246,12 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
 
     METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
     
-    pgsql_dictionary() : dictionary(self_class) {}
+    pgsql_dictionary(obj_storage* storage) : dictionary(self_class) {
+	make_persistent(hnd, storage);
+    }
 
-    static ref<pgsql_dictionary> create(size_t estimation = 10001) {
-        return NEW pgsql_dictionary();
+    static ref<pgsql_dictionary> create(obj_storage* storage, size_t estimation = 10001) {
+        return NEW pgsql_dictionary(storage);
     }
 };    
 

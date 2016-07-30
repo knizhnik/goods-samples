@@ -8,16 +8,16 @@ class CGlobalIndex : public object
 public:
 	METACLASS_DECLARATIONS(CGlobalIndex, object);
 
-	static ref<CGlobalIndex> create()
+	static ref<CGlobalIndex> create(ref<object> root)
 	{
-		return NEW CGlobalIndex(self_class);
+		return NEW CGlobalIndex(root->get_handle()->storage);
 	}
 
 	void InsertObject(ref<CDbObject> const& db_object);
 	void RemoveObject(ref<CDbObject> const& db_object);
 
 private:
-	CGlobalIndex(class_descriptor& desc);
+	CGlobalIndex(obj_storage* storage);
 
 private:
 	ref<DbHash>	m_HashTable;
