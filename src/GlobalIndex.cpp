@@ -6,7 +6,7 @@
 REGISTER(CGlobalIndex, object, pessimistic_scheme);
 
 CGlobalIndex::CGlobalIndex(obj_storage* storage)
-	: object(self_desc)
+	: object(self_class)
 	, m_HashTable(DbHash::create(storage, 100))
 {
 }

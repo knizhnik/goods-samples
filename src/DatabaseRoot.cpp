@@ -27,7 +27,7 @@ field_descriptor& CDatabaseRoot::describe_components()
 ref<CDatabaseRoot> CDatabaseRoot::create() const
 {
 	ref<CDatabaseRoot> root = this;
-	modify(root)->become(NEW CDatabaseRoot(root));
+	modify(root)->become(NEW CDatabaseRoot());
 	modify(root)->SetupNewDatabase();
 	return root;
 }
