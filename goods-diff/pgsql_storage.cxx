@@ -831,22 +831,25 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_unsigned_integer:
 				switch (field->loc.size) { 
 				  case 1:	
-					stmt((nat2)*src_bins++);
+					//stmt((nat2)*src_bins++);
+					stmt((int2)*src_bins++);
 					size -= 1;
 					break;
 				  case 2:
-					stmt(unpack2(src_bins));
+					//stmt(unpack2(src_bins));
+					stmt((int2)unpack2(src_bins));
 					src_bins += 2;
 					size -= 2;
 					break;
 				  case 4:
-					stmt(unpack4(src_bins));
+					//stmt(unpack4(src_bins));
+					stmt((int4)unpack4(src_bins));
 					src_bins += 4;
 					size -= 4;
 					break;
 				  case 8:
 				  {
-					  nat8 ival;
+					  int8 ival;
 					  src_bins = unpack8((char*)&ival, src_bins);
 					  stmt(ival);
 					  size -= 8;
