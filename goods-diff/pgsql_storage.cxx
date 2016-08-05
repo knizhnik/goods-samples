@@ -435,6 +435,41 @@ static void unpack_array_of_reference(dnm_buffer& buf, result::tuple const& reco
 	pack4(buf.append(4), n_items);
 }
 
+static void unpack_int_array(dnm_buffer& buf, std::string const& str, int elem_size, int arr_len)
+{
+	
+	char const* src = &str[0];
+	int n_items = 0;
+	assert(*src == '{');
+	src += 1;
+	if (*src != '}') { 
+		do { 
+			int8 val;
+			int n;
+			int rc = sscanf(src, "%llu%n", &val, &n);
+			assert(rc == 1);
+			switch (elem_size) { 
+			  case 2:
+				pack2(buf.append(2), (int2)val);
+				break;
+			  case 4:
+				pack4(buf.append(4), (int4)val);
+				break;
+			  case 8:
+				pack8(buf.append(8), (char*)&val);
+				break;
+			  default:
+				assert(false);
+			}
+			src += n;
+			n_items += 1;
+		} while (*src++ == ',');
+
+		assert(*--src == '}');
+	}
+	assert(arr_len == 0 || arr_len == n_items);
+}
+
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
 							dnm_buffer& buf, result::tuple const& record, size_t refs_offs, int inheritance_depth)
 {
@@ -451,35 +486,38 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
 			assert(!col.is_null() || field->loc.type == fld_string);
 			if (field->loc.n_items != 1) { 
-				assert(field->loc.size == 1);
-				if ((field->flags & fld_binary) || field->loc.type == fld_unsigned_integer) {
-					binarystring blob(col);
-					if (field->loc.n_items == 0) { 
-						char* dst = buf.append(blob.size());
-						memcpy(dst, blob.data(), blob.size());
-					} else { 
-						char* dst = buf.append(field->loc.n_items);
-						if ((size_t)field->loc.n_items <= blob.size()) { 
-							memcpy(dst, blob.data(), field->loc.n_items);
-						} else { 
+				if (field->loc.size == 1) {
+					if ((field->flags & fld_binary) || field->loc.type == fld_unsigned_integer) {
+						binarystring blob(col);
+						if (field->loc.n_items == 0) { 
+							char* dst = buf.append(blob.size());
 							memcpy(dst, blob.data(), blob.size());
-							memset(dst + blob.size(), 0, field->loc.n_items - blob.size());
+						} else { 
+							char* dst = buf.append(field->loc.n_items);
+							if ((size_t)field->loc.n_items <= blob.size()) { 
+								memcpy(dst, blob.data(), field->loc.n_items);
+							} else { 
+								memcpy(dst, blob.data(), blob.size());
+								memset(dst + blob.size(), 0, field->loc.n_items - blob.size());
+							}
+						}
+					} else { 
+						std::string str = col.as(std::string());
+						if (field->loc.n_items == 0) { 
+							char* dst = buf.append(str.size());
+							memcpy(dst, str.data(), str.size());
+						} else { 
+							char* dst = buf.append(field->loc.n_items);
+							if ((size_t)field->loc.n_items <= str.size()) { 
+								memcpy(dst, str.data(), field->loc.n_items);
+							} else { 
+								memcpy(dst, str.data(), str.size());
+								memset(dst + str.size(), 0, field->loc.n_items - str.size());
+							}
 						}
 					}
 				} else { 
-					std::string str = col.as(std::string());
-					if (field->loc.n_items == 0) { 
-						char* dst = buf.append(str.size());
-						memcpy(dst, str.data(), str.size());
-					} else { 
-						char* dst = buf.append(field->loc.n_items);
-						if ((size_t)field->loc.n_items <= str.size()) { 
-							memcpy(dst, str.data(), field->loc.n_items);
-						} else { 
-							memcpy(dst, str.data(), str.size());
-							memset(dst + str.size(), 0, field->loc.n_items - str.size());
-						}
-					}
+					unpack_int_array(buf, col.as(std::string()), field->loc.n_items, field->loc.size );
 				}
 			} else {
 				switch(field->loc.type) { 
@@ -715,6 +753,30 @@ static void store_array_of_references(invocation& stmt, char* src_refs, char* sr
 	stmt(buf.str());
 }
 
+static void store_int_array(invocation& stmt, char* src_bins, int elem_size, int length)
+{
+	std::stringstream buf;
+	buf << '{';
+	for (int i = 0; i < length; i++) { 
+		if (i != 0) {
+			buf << ',';
+		}
+		switch (elem_size) { 
+		  case 2:
+			buf << (int2)unpack2(src_bins);
+			break;
+		  case 4:
+			buf << (int4)unpack2(src_bins);
+			break;
+		  case 8:
+			buf << (int8)unpack2(src_bins);
+			break;
+		}
+	}
+	buf << '}';
+	stmt(buf.str());	
+}
+
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
 {
 	if (first == NULL) {
@@ -726,32 +788,55 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 		if (field->loc.n_items != 1) { 
 			switch (field->loc.type) { 
 			  case fld_unsigned_integer:
-				if (field->loc.n_items == 0) {
-					std::string val(src_bins, size);
-					stmt(txn->esc_raw(val));
-					src_bins += size;
-					size = 0;
+				if (field->loc.size == 1) { 
+					if (field->loc.n_items == 0) {
+						std::string val(src_bins, size);
+						stmt(txn->esc_raw(val));
+						src_bins += size;
+						size = 0;
+					} else { 
+						std::string val(src_bins, field->loc.n_items);
+						stmt(txn->esc_raw(val));
+						src_bins += field->loc.n_items;
+						size -= field->loc.n_items;
+					}
 				} else { 
-					std::string val(src_bins, field->loc.n_items);
-					stmt(txn->esc_raw(val));
-					src_bins += field->loc.n_items;
-					size -= field->loc.n_items;
+					if (field->loc.n_items == 0) {
+						store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						src_bins += size;
+						size = 0;
+					} else { 
+						store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						src_bins += field->loc.n_items*field->loc.size;
+						size -= field->loc.n_items*field->loc.size;
+					}
 				}
 				break;
-				
+
 			  case fld_signed_integer:
-				assert(field->loc.size == 1);
-				if (field->loc.n_items == 0) {
-					std::string val(src_bins, size);
-					assert((field->flags & fld_binary) != 0 || val[0] >= 0);
-					stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
-					src_bins += size;
-					size = 0;
+				if (field->loc.size == 1) {
+					if (field->loc.n_items == 0) {
+						std::string val(src_bins, size);
+						assert((field->flags & fld_binary) != 0 || val[0] >= 0);
+						stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						src_bins += size;
+						size = 0;
+					} else { 
+						std::string val(src_bins, field->loc.n_items);
+						stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						src_bins += field->loc.n_items;
+						size -= field->loc.n_items;
+					}
 				} else { 
-					std::string val(src_bins, field->loc.n_items);
-					stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
-					src_bins += field->loc.n_items;
-					size -= field->loc.n_items;
+					if (field->loc.n_items == 0) {
+						store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						src_bins += size;
+						size = 0;
+					} else { 
+						store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						src_bins += field->loc.n_items*field->loc.size;
+						size -= field->loc.n_items*field->loc.size;
+					}					
 				}
 				break;
 			  default:
