@@ -517,7 +517,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 						}
 					}
 				} else { 
-					unpack_int_array(buf, col.as(std::string()), field->loc.n_items, field->loc.size );
+					unpack_int_array(buf, col.as(std::string()), field->loc.size, field->loc.n_items);
 				}
 			} else {
 				switch(field->loc.type) { 
@@ -764,13 +764,21 @@ static void store_int_array(invocation& stmt, char* src_bins, int elem_size, int
 		switch (elem_size) { 
 		  case 2:
 			buf << (int2)unpack2(src_bins);
+			src_bins += 2;
 			break;
 		  case 4:
-			buf << (int4)unpack2(src_bins);
+			buf << (int4)unpack4(src_bins);
+			src_bins += 4;
 			break;
 		  case 8:
-			buf << (int8)unpack2(src_bins);
-			break;
+		  {
+			  int8 ival;
+			  src_bins = unpack8((char*)&ival, src_bins);
+			  buf << ival;
+			  break;
+		  }
+  		  default:
+			assert(false);
 		}
 	}
 	buf << '}';
