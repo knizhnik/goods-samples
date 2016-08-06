@@ -248,6 +248,7 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
     
     pgsql_dictionary(obj_storage* storage) : dictionary(self_class) {
 	object_handle::make_persistent(hnd, storage);
+	modify(this);
     }
 
     static ref<pgsql_dictionary> create(obj_storage* storage, size_t estimation = 10001) {
