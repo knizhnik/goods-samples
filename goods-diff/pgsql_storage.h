@@ -247,8 +247,9 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
     METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
     
     pgsql_dictionary(obj_storage* storage) : dictionary(self_class) {
-	object_handle::make_persistent(hnd, storage);
-	modify(this);
+	object_monitor::lock_global();
+	mop->make_persistent(hnd, storage);
+	object_monitor::unlock_global();
     }
 
     static ref<pgsql_dictionary> create(obj_storage* storage, size_t estimation = 10001) {
