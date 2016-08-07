@@ -213,7 +213,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("get_class", "select descriptor from classes where cpid=$1"); 
 	con->prepare("put_class", "insert into classes (cpid,name,descriptor) values ($1,$2,$3)"); 
 	con->prepare("change_class", "update classes set descriptor=$1 where cpid=$2"); 
-	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.oid=m.prev and p.owner=$1 and p.key=$2)");
+	con->prepare("index_equal", "select * from set_member m where owner=$1 and key=$2 and not exists (select * from set_member p where p.opid=m.prev and p.owner=$1 and p.key=$2)");
 	con->prepare("index_greater_or_equal", "select * from set_member where owner=$1 and key>=$2 order by key limit 1");
 	con->prepare("index_drop", "update set_member set owner=0 where owner=$1");
 	con->prepare("index_del", "update set_member set owner=0 where owner=$1 and opid=$2");
@@ -668,7 +668,7 @@ void pgsql_storage::query(objref_t& next_mbr, char const* query, nat4 buf_size, 
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.oipd=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, " << table_name << " t where m.opid=s.opid and t.opid=s.obj and " << query << " limit " << max_members;
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, " << table_name << " t where m.opid=s.opid and t.opid=s.obj and " << query << " limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
@@ -1126,7 +1126,7 @@ ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, ch
 // Emulation of GOODS B_tree
 // 
 
-REGISTER(pgsql_index, B_tree, pessimistic_repeatable_read_scheme);
+REGISTER_EX(pgsql_index, B_tree, pessimistic_repeatable_read_scheme, class_descriptor::cls_hierarchy_super_root);
 
 field_descriptor& pgsql_index::describe_components()
 {
@@ -1239,7 +1239,7 @@ void pgsql_index::clear()
 // Emulation of GOODS hash_table 
 //
 
-REGISTER(pgsql_dictionary, dictionary, pessimistic_repeatable_read_scheme);
+REGISTER_EX(pgsql_dictionary, dictionary, pessimistic_repeatable_read_scheme, class_descriptor::cls_hierarchy_super_root);
 
 field_descriptor& pgsql_dictionary::describe_components()
 {
