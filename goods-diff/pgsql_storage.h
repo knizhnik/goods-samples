@@ -246,9 +246,10 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
 
     METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
     
-    pgsql_dictionary(obj_storage* storage) : dictionary(self_class) {
+    pgsql_dictionary(obj_storage* os) : dictionary(self_class) {
+	((pgsql_storage*)os->storage)->start_transaction();
 	object_monitor::lock_global();
-	mop->make_persistent(hnd, storage);
+	mop->make_persistent(hnd, os);
 	object_monitor::unlock_global();
     }
 
