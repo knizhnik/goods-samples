@@ -31,16 +31,23 @@ BEGIN_GOODS_NAMESPACE
 
 const size_t OPID_BUF_SIZE = 64;
 
+class pgsql_index;
+class pgsql_dictionary;
+
 //
 // This class provides bridge to PostgreSQL
 //
 class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage { 
+    friend class pgsql_index;
+    friend class pgsql_dictionary;
+
     work* txn;
     connection* con;
     objref_t opid_buf[OPID_BUF_SIZE];
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
+    mutex cs;
 
   public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}

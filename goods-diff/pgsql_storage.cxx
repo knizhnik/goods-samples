@@ -169,6 +169,8 @@ inline bool is_btree(std::string name)
 	
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
 {
+    critical_section guard(cs);
+
 	opid_buf_pos = OPID_BUF_SIZE;
 	std::stringstream connStr;
 	connStr << "host=" << get_host(connection_address)
@@ -320,6 +322,7 @@ void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAl
 objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith)
 {
 	if (opid_buf_pos == OPID_BUF_SIZE) { 
+		critical_section guard(cs);
 		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
 		for (size_t i = 0; i < OPID_BUF_SIZE; i++) { 
 			opid_buf[i] = rs[i][0].as(objref_t());
@@ -331,6 +334,7 @@ objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t c
 
 void pgsql_storage::deallocate(objref_t opid)
 { 
+    critical_section guard(cs);
 	class_descriptor* desc = lookup_class(GET_CID(opid));
 	txn->prepared(get_table(desc) + "_delete")(opid).exec();
 }
@@ -354,6 +358,7 @@ void pgsql_storage::start_transaction()
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
+    critical_section guard(cs);
 	start_transaction();
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
@@ -363,6 +368,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
+    critical_section guard(cs);
 	start_transaction();
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
@@ -381,6 +387,8 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 void pgsql_storage::change_class(cpid_t cpid, 
 								 dbs_class_descriptor* dbs_desc)
 {
+    critical_section guard(cs);
+	start_transaction();
 	size_t dbs_desc_size = dbs_desc->get_size();
 	std::string buf((char*)dbs_desc, dbs_desc_size);
 	((dbs_class_descriptor*)buf.data())->pack();
@@ -659,6 +667,7 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 void pgsql_storage::query(objref_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
+    critical_section guard(cs);
 	start_transaction();
 	load(next_mbr, flags, buf);
 	stid_t sid;
@@ -677,6 +686,7 @@ void pgsql_storage::query(objref_t& next_mbr, char const* query, nat4 buf_size, 
 void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
+    critical_section guard(cs);
 	start_transaction();
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
@@ -730,6 +740,7 @@ void pgsql_storage::throw_object(objref_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
+    critical_section guard(cs);
 	buf.put(0);
 	start_transaction();
 }
@@ -996,6 +1007,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 													  dnm_buffer& buf, 
 													  trid_t& tid)
 {
+    critical_section guard(cs);
 	assert(n_trans_servers == 1);
 	assert(txn != NULL);
 	char* ptr = &buf;
@@ -1050,6 +1062,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 
 void pgsql_storage::rollback_transaction()
 {
+    critical_section guard(cs);
 	if (txn != NULL) { 
 		txn->abort();
 		//printf("Abort transaction\n");
@@ -1107,6 +1120,7 @@ invocation pgsql_storage::statement(char const* name)
 
 ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, char const* op, std::string const& key)
 {
+    critical_section guard(cs);
 	start_transaction();
 	result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 	size_t size = rs.size();
@@ -1215,6 +1229,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 	pgsql_storage* pg = get_storage(this);
 	assert (pg != NULL);
 		//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
+    critical_section guard(pg->cs);
 	pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();	
 	set_owner::remove(mbr);
 }
@@ -1223,6 +1238,7 @@ void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
 	if (pg != NULL) { 
+		critical_section guard(pg->cs);
 		pg->statement("index_drop")(hnd->opid).exec();	
 	} else { 
 		mem_index.clear();
@@ -1255,12 +1271,14 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 		obj_hnd->obj->mop->make_persistent(obj_hnd, hnd);
 		object_monitor::unlock_global();
 	}
+    critical_section guard(pg->cs);
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
 }
 
 anyref pgsql_dictionary::get(const char* name) const
 {
 	pgsql_storage* pg = get_storage(this);
+    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_get")(hnd->opid)(name).exec();
 	anyref ref;
 	if (rs.empty()) { 
@@ -1273,6 +1291,7 @@ anyref pgsql_dictionary::get(const char* name) const
 boolean pgsql_dictionary::del(const char* name) 
 {
 	pgsql_storage* pg = get_storage(this);
+    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_delall")(hnd->opid)(name).exec();
 	boolean found = rs.affected_rows() != 0;
 	return found;
@@ -1281,6 +1300,7 @@ boolean pgsql_dictionary::del(const char* name)
 boolean pgsql_dictionary::del(const char* name, anyref obj) 
 {
 	pgsql_storage* pg = get_storage(this);
+    critical_section guard(pg->cs);
 	hnd_t obj_hnd = obj->get_handle();
 	if (obj_hnd == NULL) { 
 		return false;
@@ -1299,12 +1319,14 @@ anyref pgsql_dictionary::apply(hash_item::item_function) const
 void pgsql_dictionary::reset()
 {
 	pgsql_storage* pg = get_storage(this);
+    critical_section guard(pg->cs);
 	pg->statement("hash_drop")(hnd->opid).exec();
 }
 
 size_t pgsql_dictionary::get_number_of_elements() const
 {
 	pgsql_storage* pg = get_storage(this);
+    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_size")(hnd->opid).exec();
 	assert(rs.size() == 1);
 	int64_t n_elems = rs[0][0].as(int64_t());
