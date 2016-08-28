@@ -381,7 +381,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 	}
 	((dbs_class_descriptor*)buf.data())->pack();
 	txn->prepared("put_class")(cpid)(name)(txn->esc_raw(buf)).exec();	
-	return cpid;[
+	return cpid;
 }
 
 void pgsql_storage::change_class(cpid_t cpid, 
@@ -1295,7 +1295,7 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 anyref pgsql_dictionary::get(const char* name) const
 {
 	anyref ref;
-	objref_t result;
+	objref_t obj;
 	{
 		pgsql_storage* pg = get_storage(this);
 		critical_section guard(pg->cs);
@@ -1303,9 +1303,9 @@ anyref pgsql_dictionary::get(const char* name) const
 		if (rs.empty()) { 
 			return NULL;
 		}
-		result = rs[0][0].as(objref_t());
+		obj = rs[0][0].as(objref_t());
 	}
-	((database*)get_database())->get_object(ref, result, 0);
+	((database*)get_database())->get_object(ref, obj, 0);
 	return ref;
 }
 
