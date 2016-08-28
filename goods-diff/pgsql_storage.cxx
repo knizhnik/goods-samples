@@ -1236,7 +1236,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 	pgsql_storage* pg = get_storage(this);
 	if (pg == NULL) {
 		skey_t key = mbr->get_key();
-		auto& iterpair = mem_index.equal_range(std::string((char*)&key, sizeof(key)));
+		auto iterpair = mem_index.equal_range(std::string((char*)&key, sizeof(key)));
 		
 		for (auto it = iterpair.first; it != mem_index.end() && it != iterpair.second; ++it) {
 			if (it->second == mbr) {
