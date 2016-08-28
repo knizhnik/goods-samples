@@ -1234,11 +1234,19 @@ void pgsql_index::insert(ref<set_member> mbr)
 void pgsql_index::remove(ref<set_member> mbr)
 {
 	pgsql_storage* pg = get_storage(this);
-	assert (pg != NULL);
-		//printf("Delete %d from set_member\n", mbr->get_handle()->opid);
-	{
+	if (pg == NULL) {
+		skey_t key = mbr->get_key();
+		auto& iterpair = mem_index.equal_range(std::string((char*)&key, sizeof(key)));
+		
+		for (auto it = iterpair.first; it != mem_index.end() && it != iterpair.second; ++it) {
+			if (it->second == mbr) {
+				mem_index.erase(it);
+				break;
+			}
+		}
+	} else {
 		critical_section guard(pg->cs);
-		pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();	
+		pg->statement("index_del")(hnd->opid)(mbr->get_handle()->opid).exec();
 	}
 	set_owner::remove(mbr);
 }
