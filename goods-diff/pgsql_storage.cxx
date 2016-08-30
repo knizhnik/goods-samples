@@ -1213,6 +1213,7 @@ void pgsql_index::insert(ref<set_member> mbr)
 		skey_t key = mbr->get_key();
 		next = findGE(key);
 		if (pg == NULL) { 
+			pack8(key);
 			mem_index.insert(std::pair< std::string, ref<set_member> >(std::string((char*)&key, sizeof(key)), mbr));
 		}			
 	} else { 
@@ -1235,9 +1236,18 @@ void pgsql_index::remove(ref<set_member> mbr)
 {
 	pgsql_storage* pg = get_storage(this);
 	if (pg == NULL) {
-		skey_t key = mbr->get_key();
-		auto iterpair = mem_index.equal_range(std::string((char*)&key, sizeof(key)));
-		
+		std::string strkey;
+		if (&mbr->cls != &set_member::self_class) {
+			skey_t key = mbr->get_key();
+			pack8(key);
+			strkey = std::string((char*)&key, sizeof key);
+		} else { 
+			char key[MAX_KEY_SIZE];
+			size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
+			assert(keySize < MAX_KEY_SIZE);
+			strkey = std::string(key, keySize);
+		}
+		auto iterpair = mem_index.equal_range(strkey);		
 		for (auto it = iterpair.first; it != mem_index.end() && it != iterpair.second; ++it) {
 			if (it->second == mbr) {
 				mem_index.erase(it);
