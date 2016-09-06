@@ -4,14 +4,13 @@
 #include "stdafx.h"
 
 #include "TimeBtree.h"
-#include "DBMetaobject.h"
-#include "MagayaDBFields.h"
+#include "DbObject.h"
 
 
 /////////////////////////////////////////////////////////////////////////////
 // Implementation for class CTimeSetMember
 
-REGISTER_EX(CTimeSetMember, set_member, PessimisticMetaobject, class_descriptor::cls_binary);
+REGISTER_EX(CTimeSetMember, set_member, pessimistic_scheme, class_descriptor::cls_binary);
 
 CTimeSetMember::~CTimeSetMember()
 {
@@ -145,7 +144,7 @@ BOOL CTimeSetMember::UpdatePosition(time_t tkey)
 /////////////////////////////////////////////////////////////////////////////
 // Implementation for class CTimeBtree
 
-REGISTER_EX(CTimeBtree, DbIndex, PessimisticMetaobject, class_descriptor::cls_hierarchy_super_root);
+REGISTER_EX(CTimeBtree, DbIndex, pessimistic_scheme, class_descriptor::cls_hierarchy_super_root);
 
 field_descriptor& CTimeBtree::describe_components()
 {
@@ -201,7 +200,7 @@ void CTimeBtree::GetDateRange(ref<CTimeBtree> btree,
 	{
 		ref<set_member> mbr = btree->findGE(EndTime);
 		//skip the equal elements
-		while(!mbr.is_nil() && mbr->get_key() == EndTime)
+		while(!mbr.is_nil() && (time_t)mbr->get_key() == EndTime)
 			mbr = mbr->next;
 		End = mbr.is_nil() ? End : mbr->prev;
 		End = End.is_nil() ? Start : End;
