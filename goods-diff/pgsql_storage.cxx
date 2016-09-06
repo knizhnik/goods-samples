@@ -1209,7 +1209,7 @@ void pgsql_index::insert(ref<set_member> mbr)
 {
 	ref<set_member> next;
 	pgsql_storage* pg = get_storage(this);
-	if (&mbr->cls != &set_member::self_class) {
+	if (mbr->cls.class_attr & class_descriptor::cls_binary) {
 		skey_t key = mbr->get_key();
 		next = findGE(key);
 		if (pg == NULL) { 
@@ -1220,6 +1220,7 @@ void pgsql_index::insert(ref<set_member> mbr)
 		char key[MAX_KEY_SIZE];
 		size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
 		assert(keySize < MAX_KEY_SIZE);
+		if (key[keySize-1] == '\0') keySize -= 1;
 		next = findGE(key, keySize, 0); // skey is not used here
 		if (pg == NULL) { 
 			mem_index.insert(std::pair< std::string, ref<set_member> >(std::string(key, keySize), mbr));
@@ -1237,7 +1238,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 	pgsql_storage* pg = get_storage(this);
 	if (pg == NULL) {
 		std::string strkey;
-		if (&mbr->cls != &set_member::self_class) {
+		if (mbr->cls.class_attr & class_descriptor::cls_binary) {
 			skey_t key = mbr->get_key();
 			pack8(key);
 			strkey = std::string((char*)&key, sizeof key);
@@ -1245,6 +1246,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 			char key[MAX_KEY_SIZE];
 			size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
 			assert(keySize < MAX_KEY_SIZE);
+			if (key[keySize-1] == '\0') keySize -= 1;
 			strkey = std::string(key, keySize);
 		}
 		auto iterpair = mem_index.equal_range(strkey);		
