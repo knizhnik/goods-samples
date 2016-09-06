@@ -4,14 +4,14 @@
 #include "stdafx.h"
 
 #include "TimeBtree.h"
-//#include "DBMetaobject.h"
-//#include "MagayaDBFields.h"
+#include "DBMetaobject.h"
+#include "MagayaDBFields.h"
 
 
 /////////////////////////////////////////////////////////////////////////////
 // Implementation for class CTimeSetMember
 
-REGISTER(CTimeSetMember, set_member, pessimistic_scheme);
+REGISTER_EX(CTimeSetMember, set_member, PessimisticMetaobject, class_descriptor::cls_binary);
 
 CTimeSetMember::~CTimeSetMember()
 {
@@ -19,8 +19,12 @@ CTimeSetMember::~CTimeSetMember()
 
 ref<set_member> CTimeSetMember::create(ref<object> obj, time_t t)
 {
-	t = t ? t : time(NULL);
-	return new(self_class, sizeof(time_t)) CTimeSetMember(self_class, obj, t);
+	nat8 t1 = t ? t : time(NULL);
+#ifdef PGSQL_ORM
+	pack8(t1);
+#endif
+
+	return new(self_class, sizeof(time_t)) CTimeSetMember(self_class, obj, t1);
 }
 
 
@@ -36,15 +40,23 @@ skey_t CTimeSetMember::get_key() const
 
 	if(getKeyLength() == 4)
 	{
+#ifdef PGSQL_ORM
+		unpack4((char*)&skey, (char*)key);
+#else
 		DWORD t;
 		memcpy(&t, key, sizeof(DWORD));
 		skey = (skey_t)t;
+#endif
 	}
 	else
 	{
+#ifdef PGSQL_ORM
+		unpack8((char*)&skey, (char*)key);
+#else
 		time_t t;
 		memcpy(&t, key, sizeof(time_t));
 		skey = t;
+#endif
 	}
 
 	return skey;
@@ -54,13 +66,21 @@ void CTimeSetMember::UpdateKeyVal(time_t new_key)
 {
 	if(getKeyLength() == 4)
 	{
+#ifdef PGSQL_ORM
+		pack4((char*)key, (char*)&new_key);
+#else
 		DWORD t = (DWORD)new_key;
 		memcpy(key, &t, sizeof(DWORD));
+#endif		
 	}
 	else
 	{
+#ifdef PGSQL_ORM
+		pack8((char*)key, (char*)&new_key);
+#else
 		memcpy(key, &new_key, sizeof(time_t));
-	}
+#endif
+	}	
 }
 
 int CTimeSetMember::compare(const char* thatKey) const
@@ -125,7 +145,7 @@ BOOL CTimeSetMember::UpdatePosition(time_t tkey)
 /////////////////////////////////////////////////////////////////////////////
 // Implementation for class CTimeBtree
 
-REGISTER(CTimeBtree, DbIndex, pessimistic_scheme);
+REGISTER_EX(CTimeBtree, DbIndex, PessimisticMetaobject, class_descriptor::cls_hierarchy_super_root);
 
 field_descriptor& CTimeBtree::describe_components()
 {
@@ -181,7 +201,7 @@ void CTimeBtree::GetDateRange(ref<CTimeBtree> btree,
 	{
 		ref<set_member> mbr = btree->findGE(EndTime);
 		//skip the equal elements
-		while(!mbr.is_nil() && (time_t)mbr->get_key() == EndTime)
+		while(!mbr.is_nil() && mbr->get_key() == EndTime)
 			mbr = mbr->next;
 		End = mbr.is_nil() ? End : mbr->prev;
 		End = End.is_nil() ? Start : End;
@@ -190,3 +210,4 @@ void CTimeBtree::GetDateRange(ref<CTimeBtree> btree,
 	if(Start.is_nil())
 		End = NULL;
 }
+

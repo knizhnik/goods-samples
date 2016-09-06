@@ -241,7 +241,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
 			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
-			if (root_class == &set_member::self_class) { 
+			if (root_class == &set_member::self_class && (cls->class_attr & class_descriptor::cls_binary)) { 
 				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
 			}
 			{
