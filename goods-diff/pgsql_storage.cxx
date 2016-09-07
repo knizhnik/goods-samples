@@ -24,6 +24,13 @@ inline std::string get_table(class_descriptor* desc)
 	return std::string(get_root_class(desc)->name);
 }
 
+inline bool is_text_set_member(class_descriptor* desc)
+{
+	return desc == &set_member::self_class
+		|| (desc->base_class == &set_member::self_class 
+			&& !(desc->base_class->class_attr & class_descriptor::cls_binary));
+}
+
 
 inline int get_inheritance_depth(class_descriptor* cls) {
 	int depth;
@@ -479,7 +486,8 @@ static void unpack_int_array(dnm_buffer& buf, std::string const& str, int elem_s
 }
 
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
-							dnm_buffer& buf, result::tuple const& record, size_t refs_offs, int inheritance_depth)
+							dnm_buffer& buf, result::tuple const& record, size_t refs_offs, int inheritance_depth, 
+							bool make_zero_terminated)
 {
 	if (first == NULL) {
 		return refs_offs;
@@ -489,7 +497,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
     do { 
 		if (field->loc.type == fld_structure) { 
 			assert(field->loc.n_items == 1);
-			refs_offs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, refs_offs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
+			refs_offs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, refs_offs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0, make_zero_terminated);
 		} else {
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
 			assert(!col.is_null() || field->loc.type == fld_string);
@@ -498,8 +506,15 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 					if ((field->flags & fld_binary) || field->loc.type == fld_unsigned_integer) {
 						binarystring blob(col);
 						if (field->loc.n_items == 0) { 
-							char* dst = buf.append(blob.size());
-							memcpy(dst, blob.data(), blob.size());
+							size_t size = blob.size();
+							if (make_zero_terminated) { 
+								char* dst = buf.append(size+1);
+								memcpy(dst, blob.data(), size);
+								dst[size] = '\0';
+							} else {
+								char* dst = buf.append(size);
+								memcpy(dst, blob.data(), size);
+							}
 						} else { 
 							char* dst = buf.append(field->loc.n_items);
 							if ((size_t)field->loc.n_items <= blob.size()) { 
@@ -628,7 +643,7 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 	if (desc->n_varying_references != 0) { 
 		unpack_array_of_reference(buf, record);
 	} else { 
-		size_t refs_offs = unpack_struct(prefix, desc->fields, buf, record, hdr_offs + sizeof(dbs_object_header), get_inheritance_depth(desc));
+		size_t refs_offs = unpack_struct(prefix, desc->fields, buf, record, hdr_offs + sizeof(dbs_object_header), get_inheritance_depth(desc), is_text_set_member(desc));
 		assert(refs_offs == hdr_offs + sizeof(dbs_object_header) + sizeof(dbs_reference_t)*desc->n_fixed_references);
 	}
 	hdr = (dbs_object_header*)(&buf + hdr_offs);
@@ -1044,7 +1059,11 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 					src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
 					store_array_of_references(stmt, src_refs, src_bins);
 				} else { 
-					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, hdr->get_size());
+					size_t size = hdr->get_size();
+					if (is_text_set_member(desc)) { 
+						size -= 1; // do not store zero terminating character
+					}
+					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size);
 					assert(left == 0);
 				}
 				result r = stmt.exec();
