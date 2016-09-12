@@ -28,7 +28,7 @@ inline bool is_text_set_member(class_descriptor* desc)
 {
 	return desc == &set_member::self_class
 		|| (desc->base_class == &set_member::self_class 
-			&& !(desc->base_class->class_attr & class_descriptor::cls_binary));
+			&& !(desc->class_attr & class_descriptor::cls_binary));
 }
 
 
