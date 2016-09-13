@@ -1261,7 +1261,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 			char key[MAX_KEY_SIZE];
 			size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
 			assert(keySize < MAX_KEY_SIZE);
-			if (key[keySize-1] == '\0') keySize -= 1;
+			if (keySize != 0 && key[keySize-1] == '\0') keySize -= 1;
 			strkey = std::string(key, keySize);
 		}
 		auto iterpair = mem_index.equal_range(strkey);		
