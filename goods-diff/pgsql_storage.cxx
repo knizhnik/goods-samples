@@ -28,7 +28,7 @@ inline bool is_text_set_member(class_descriptor* desc)
 {
 	return desc == &set_member::self_class
 		|| (desc->base_class == &set_member::self_class 
-			&& !(desc->base_class->class_attr & class_descriptor::cls_binary));
+			&& !(desc->class_attr & class_descriptor::cls_binary));
 }
 
 
@@ -811,7 +811,7 @@ static void store_int_array(invocation& stmt, char* src_bins, int elem_size, int
 	stmt(buf.str());	
 }
 
-size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size)
+size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated)
 {
 	if (first == NULL) {
 		return size;
@@ -850,8 +850,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_signed_integer:
 				if (field->loc.size == 1) {
 					if (field->loc.n_items == 0) {
-						std::string val(src_bins, size);
-						assert((field->flags & fld_binary) != 0 || val[0] >= 0);
+						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? size-1 : size);
 						stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
 						src_bins += size;
 						size = 0;
@@ -1005,7 +1004,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				}
 				break;
 			  case fld_structure:
-				size = store_struct(field->components, stmt, src_refs, src_bins, size);
+				  size = store_struct(field->components, stmt, src_refs, src_bins, size, is_zero_terminated);
 				break;
 			  default:
 				assert(false);
@@ -1060,10 +1059,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 					store_array_of_references(stmt, src_refs, src_bins);
 				} else { 
 					size_t size = hdr->get_size();
-					if (is_text_set_member(desc)) { 
-						size -= 1; // do not store zero terminating character
-					}
-					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size);
+					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
 					assert(left == 0);
 				}
 				result r = stmt.exec();
@@ -1176,7 +1172,7 @@ field_descriptor& pgsql_index::describe_components()
 ref<set_member> pgsql_index::find(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	std::string strkey(str, len);
+	std::string strkey(str, len != 0 && str[len-1] == '\0' ? len-1 : len);
 	if (pg == NULL) { 
 		inmem_index_impl::const_iterator it = mem_index.find(strkey);
 		if (it == mem_index.end()) { 
@@ -1201,7 +1197,7 @@ ref<set_member> pgsql_index::find(skey_t key) const
 ref<set_member> pgsql_index::findGE(const char* str, size_t len, skey_t key) const
 {
 	pgsql_storage* pg = get_storage(this);
-	std::string strkey(str, len);
+	std::string strkey(str, len != 0 && str[len-1] == '\0' ? len-1 : len);
 	if (pg == NULL) { 
 		inmem_index_impl::const_iterator it = mem_index.lower_bound(strkey);
 		if (it == mem_index.end()) { 
@@ -1229,7 +1225,7 @@ void pgsql_index::insert(ref<set_member> mbr)
 	ref<set_member> next;
 	pgsql_storage* pg = get_storage(this);
 	if (mbr->cls.class_attr & class_descriptor::cls_binary) {
-		skey_t key = mbr->get_key();
+	skey_t key = mbr->get_key();
 		next = findGE(key);
 		if (pg == NULL) { 
 			pack8(key);
@@ -1239,9 +1235,9 @@ void pgsql_index::insert(ref<set_member> mbr)
 		char key[MAX_KEY_SIZE];
 		size_t keySize = mbr->copyKeyTo(key, MAX_KEY_SIZE);
 		assert(keySize < MAX_KEY_SIZE);
-		if (key[keySize-1] == '\0') keySize -= 1;
 		next = findGE(key, keySize, 0); // skey is not used here
 		if (pg == NULL) { 
+			if (keySize != 0 && key[keySize-1] == '\0') keySize -= 1;
 			mem_index.insert(std::pair< std::string, ref<set_member> >(std::string(key, keySize), mbr));
 		}			
 	}
