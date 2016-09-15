@@ -99,7 +99,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    load(objref_t opid, int flags, dnm_buffer& buf);
 
 
-    virtual void    query(objref_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf);
+    virtual void    query(objref_t& next_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf);
 
     //
     // Inform server that client no more has reference to specified object

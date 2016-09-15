@@ -680,23 +680,33 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 
 
-void pgsql_storage::query(objref_t& next_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
+void pgsql_storage::query(objref_t& next_mbr, obj_ref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
     critical_section guard(cs);
 	start_transaction();
 	load(next_mbr, flags, buf);
 	stid_t sid;
 	objref_t opid;
-	unpackref(sid, opid, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
-	cpid_t cpid = GET_CID(opid);
+	objref_t obj;
+	unpackref(sid, obj, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
+	cpid_t cpid = GET_CID(obj);
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << opid << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, " << table_name << " t where m.opid=s.opid and t.opid=s.obj" << (*query ? " and " : "") << query << " limit " << max_members;
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << next_mbr << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
+	if (last_mbr != 0) { 
+		sql << " where m.prev <> " << last_mbr;
+	}
+	sql << ") select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"" << table_name << "\" t where m.opid=s.opid and t.opid=s.obj";
+	if (query && *query) { 
+		sql << " and " << query;
+	}
+	sql << " limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	next_mbr = load_query_result(rs, buf);
 }
+
 
 void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
