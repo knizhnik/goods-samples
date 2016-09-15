@@ -680,13 +680,12 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 
 
-void pgsql_storage::query(objref_t& next_mbr, obj_ref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
+void pgsql_storage::query(objref_t& next_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
     critical_section guard(cs);
 	start_transaction();
 	load(next_mbr, flags, buf);
 	stid_t sid;
-	objref_t opid;
 	objref_t obj;
 	unpackref(sid, obj, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
 	cpid_t cpid = GET_CID(obj);
