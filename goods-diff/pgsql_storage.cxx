@@ -695,7 +695,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << first_mbr << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
+	sql << "with recursive set_members(no,opid,obj) as (select 1,m.opid,m.obj from set_member m where m.opid=" << first_mbr << " union all select s.no+1,m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
 	if (last_mbr != 0) { 
 		sql << " where m.prev <> " << last_mbr;
 	}
@@ -703,7 +703,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 	if (query && *query) { 
 		sql << " and " << query;
 	}
-	sql << " limit " << max_members;
+	sql << " order by s.no limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
 	first_mbr = load_query_result(rs, buf, flags);
