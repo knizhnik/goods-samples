@@ -159,7 +159,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
     class_descriptor* lookup_class(cpid_t cpid);
     void unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record);
-    objref_t load_query_result(result& rs, dnm_buffer& buf);
+    objref_t load_query_result(result& rs, dnm_buffer& buf, int flags);
     size_t store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated);
 
     invocation statement(char const* name);

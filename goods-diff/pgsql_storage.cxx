@@ -657,12 +657,12 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 		cpid_t cpid = GET_CID(mbr_obj_opid);
 		std::string table_name = get_table(lookup_class(cpid));
 		result rs = txn->prepared(table_name  + "_loadset")(opid)(max_preloaded_set_members).exec();
-		load_query_result(rs, buf);
+		load_query_result(rs, buf, qf_include_members);
 	}
 #endif
 }
 
-objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
+objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, int flags)
 {
 	objref_t next_mbr = 0;
 	for (result::const_iterator i = rs.begin(); i != rs.end(); ++i) {
@@ -673,6 +673,9 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 		unpack_object("mbr_", &set_member::self_class, buf, obj_record);
 		stid_t next_sid;
 		unpackref(next_sid, next_mbr, &buf + mbr_buf_offs + sizeof(dbs_object_header));
+		if (!(flags & qf_include_members)) { 
+			buf.put(mbr_buf_offs);
+		}
 		unpack_object("", obj_desc, buf, obj_record); 
 	}
 	return next_mbr;
@@ -680,11 +683,11 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf)
 
 
 
-void pgsql_storage::query(objref_t& next_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
+void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
     critical_section guard(cs);
 	start_transaction();
-	load(next_mbr, flags, buf);
+	load(first_mbr, flags, buf);
 	stid_t sid;
 	objref_t obj;
 	unpackref(sid, obj, &buf + sizeof(dbs_object_header) + 3*sizeof(dbs_reference_t));
@@ -692,7 +695,7 @@ void pgsql_storage::query(objref_t& next_mbr, objref_t last_mbr, char const* que
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << next_mbr << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
+	sql << "with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.opid=" << first_mbr << " union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
 	if (last_mbr != 0) { 
 		sql << " where m.prev <> " << last_mbr;
 	}
@@ -703,7 +706,7 @@ void pgsql_storage::query(objref_t& next_mbr, objref_t last_mbr, char const* que
 	sql << " limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
-	next_mbr = load_query_result(rs, buf);
+	first_mbr = load_query_result(rs, buf, flags);
 }
 
 
