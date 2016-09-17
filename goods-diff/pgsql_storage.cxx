@@ -631,7 +631,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 	return refs_offs;
 }
 
-void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
+objref_t pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* desc, dnm_buffer& buf, result::tuple const& record)
 {
 	size_t hdr_offs = buf.size();
 	dbs_object_header* hdr = (dbs_object_header*)buf.append(sizeof(dbs_object_header) + desc->n_fixed_references*sizeof(dbs_reference_t)); 
@@ -660,9 +660,10 @@ void pgsql_storage::unpack_object(std::string const& prefix, class_descriptor* d
 		load_query_result(rs, buf, qf_include_members);
 	}
 #endif
+	return opid;
 }
 
-objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, int flags)
+objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, objref_t last_mbr, int flags)
 {
 	objref_t next_mbr = 0;
 	for (result::const_iterator i = rs.begin(); i != rs.end(); ++i) {
@@ -670,9 +671,13 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, int flags
 		objref_t obj_opid = obj_record["opid"].as(objref_t());
 		class_descriptor* obj_desc = lookup_class(GET_CID(obj_opid));
 		size_t mbr_buf_offs = buf.size();
-		unpack_object("mbr_", &set_member::self_class, buf, obj_record);
-		stid_t next_sid;
-		unpackref(next_sid, next_mbr, &buf + mbr_buf_offs + sizeof(dbs_object_header));
+		objref_t mbr_opid = unpack_object("mbr_", &set_member::self_class, buf, obj_record);
+		if (mbr_opid == last_mbr) { 
+			next_mbr = 0;
+		} else { 
+			stid_t next_sid;
+			unpackref(next_sid, next_mbr, &buf + mbr_buf_offs + sizeof(dbs_object_header));
+		}
 		if (!(flags & qf_include_members)) { 
 			buf.put(mbr_buf_offs);
 		}
@@ -706,7 +711,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 	sql << " order by s.no limit " << max_members;
 	result rs = txn->exec(sql.str());
 	buf.put(0); // reset buffer
-	first_mbr = load_query_result(rs, buf, flags);
+	first_mbr = load_query_result(rs, buf, last_mbr, flags);
 }
 
 
