@@ -680,8 +680,8 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, objref_t 
 		}
 		if (!(flags & qf_include_members)) { 
 			buf.put(mbr_buf_offs);
+			unpack_object("", obj_desc, buf, obj_record); 
 		}
-		unpack_object("", obj_desc, buf, obj_record); 
 	}
 	return next_mbr;
 }
@@ -700,9 +700,10 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 	class_descriptor* desc = lookup_class(cpid);
 	std::string table_name = get_table(desc);
 	std::stringstream sql;
-	sql << "with recursive set_members(no,opid,obj) as (select 1,m.opid,m.obj from set_member m where m.opid=" << first_mbr << " union all select s.no+1,m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid";
+	char const* follow = (flags & qf_backward) ? "m.next" : "m.prev";
+	sql << "with recursive set_members(no,opid,obj) as (select 1,m.opid,m.obj from set_member m where m.opid=" << first_mbr << " union all select s.no+1,m.opid,m.obj from set_member m join set_members s on " << follow << "=s.opid";
 	if (last_mbr != 0) { 
-		sql << " where m.prev <> " << last_mbr;
+		sql << " where " << follow << " <> " << last_mbr;
 	}
 	sql << ") select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"" << table_name << "\" t where m.opid=s.opid and t.opid=s.obj";
 	if (query && *query) { 
