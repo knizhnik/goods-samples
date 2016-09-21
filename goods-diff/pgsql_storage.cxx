@@ -1290,7 +1290,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 			}
 		}
 	} else {
-		opid_t opid = mbr->get_handle()->opid;
+		objref_t opid = mbr->get_handle()->opid;
 		critical_section guard(pg->cs);
 		pg->statement("index_del")(hnd->opid)(opid).exec();
 	}
