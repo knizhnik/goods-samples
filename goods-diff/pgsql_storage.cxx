@@ -303,6 +303,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
 				con->prepare(table_name + "_loadobj", std::string("select * from \"") + table_name + "\" where opid=$1");
+				con->prepare(table_name + "_loadobj_for_update", std::string("select * from \"") + table_name + "\" where opid=$1 for update");
 				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"") + table_name + "\" t where m.opid=s.opid and t.opid=s.obj limit $2");
 
 			}
@@ -750,7 +751,7 @@ void pgsql_storage::load(objref_t* opp, int n_objects,
 			hdr->set_size(blob.size()); 
 			memcpy(hdr+1, blob.data(), blob.size());
 		} else { 
-			result rs = txn->prepared(get_table(desc) + "_loadobj")(opid).exec();
+			result rs = txn->prepared(get_table(desc) + ((flags & lof_update) ? "_loadobj_for_update" : "_loadobj"))(opid).exec();
 			assert(rs.size() == 1);
 			size_t hdr_offs = buf.size();
 			unpack_object("", desc, buf, rs[0]);
