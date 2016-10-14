@@ -12,7 +12,7 @@ magaya_client_storage::magaya_client_storage(stid_t sid, dbs_application* app)
 }
 
 /*virtual oveerride*/
-boolean magaya_client_storage::open(const char* server_connection_name, const char* login, const char* password)
+boolean magaya_client_storage::open(const char* server_connection_name, const char* login, const char* password, obj_storage* os)
 {
 	sock = socket_t::connect(server_connection_name);
 	if (!sock->is_ok())

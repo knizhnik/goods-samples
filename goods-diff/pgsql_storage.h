@@ -47,10 +47,13 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
+    time_t lastSyncTime;
+    obj_storage* os;
+    int64_t clientID;
     mutex cs;
 
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), lastSyncTime(0) {}
 	
     virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
@@ -147,7 +150,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     //
     virtual boolean wait_global_transaction_completion();
 
-    virtual boolean open(const char* server_connection_name, char const* login = NULL, char const* password = NULL);
+    virtual boolean open(const char* server_connection_name, char const* login, char const* password, obj_storage* os);
     virtual void    close();
 
     virtual nat8    get_used_size();

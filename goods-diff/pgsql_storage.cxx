@@ -174,10 +174,10 @@ inline bool is_btree(std::string name)
 	return name == "B_tree" || name == "SB_tree";
 }
 	
-boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password) 
+boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password, obj_storage* storage) 
 {
     critical_section guard(cs);
-
+	os = storage;
 	opid_buf_pos = OPID_BUF_SIZE;
 	std::stringstream connStr;
 	connStr << "host=" << get_host(connection_address)
@@ -195,7 +195,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("create domain objref as bigint");
 		txn.exec("create domain objrefs as bigint[]");
 		txn.commit();
-	} catch (pqxx_exception const&x) {} // ignore error if domain alreqady exists
+	} catch (pqxx_exception const&x) {} // ignore error if domain already exists
 
 	work txn(*con);	
 
@@ -205,14 +205,16 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea)");
 	txn.exec("create table if not exists root_class(cpid integer)");
+	txn.exec("create table if not exists version_history(opid objref, clientid bigint, modtime bigint)");
 
 	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
 	txn.exec("create index if not exists set_member_prev on set_member(prev)");
+	txn.exec("create index if not exists version_history_pk on version_history(modtime)");
 
 	txn.exec("create sequence if not exists oid_sequence");
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
-
+	txn.exec("create sequence if not exists client_sequence");
 		
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1)"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
@@ -233,10 +235,16 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("hash_delall", "delete from dict_entry where owner=$1 and name=$2");
 	con->prepare("hash_del", "delete from dict_entry where owner=$1 and name=$2 and value=$3");
 	con->prepare("hash_drop", "delete from dict_entry where owner=$1");
-	con->prepare("hash_size", "select count(*) from dict_entry where owner=$1");
+
+	con->prepare("mkversion", "insert into version_history values ($1,$2,extract(epoch from now())::bigint)");
+	con->prepare("deteriorated", "select opid from version_history where modtime>=$1 and clientid<>$2");
+	con->prepare("lastsync", "select max(modtime) from version_history");
 				
+	con->prepare("hash_size", "select count(*) from dict_entry where owner=$1");
 	con->prepare("write_file", "select writeEfile($1, $2)");
 	con->prepare("read_file", "select readEfile($1)");
+
+	clientID = txn.exec("select nextval('client_sequence')")[0][0].as(int64_t()); 
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
@@ -358,8 +366,39 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 
 void pgsql_storage::start_transaction()
 {
-	if (txn == NULL && con != NULL) { 
+	if (txn == NULL && con != NULL) { 		
 		txn = new work(*con);
+		std::vector<objref_t> deteriorated;
+		{
+			time_t sync = txn->prepared("lastsync").exec()[0][0].as(time_t());
+			result rs = txn->prepared("deteriorated")(lastSyncTime)(clientID).exec();
+			lastSyncTime = sync;
+			deteriorated.resize(rs.size());
+			size_t i = 0;
+			for (result::const_iterator it = rs.begin(); it != rs.end(); ++it) {
+				result::tuple t = *it;
+				deteriorated[i++] = t[0].as(objref_t());
+			}
+			assert(i == deteriorated.size());
+		}
+		// Invalidation of objects need global lock. To avoid deadlock unlock first storage mutex.
+		size_t n = deteriorated.size();
+		if (n != 0) { 
+			cs.leave();
+			object_monitor::lock_global(); 
+			for (size_t i = 0; i < n; i++) { 				
+				hnd_t hnd = object_handle::find(os, deteriorated[i]);
+				if (hnd != 0) { 
+					if (IS_VALID_OBJECT(hnd->obj)) { 
+						hnd->obj->mop->invalidate(hnd); 
+					} else { 
+						hnd->obj = INVALIDATED_OBJECT; 
+					}
+				}
+			}
+			object_monitor::unlock_global(); 
+			cs.enter();
+		}				
 	}
 }
 
@@ -1083,6 +1122,10 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 				}
 				result r = stmt.exec();
 				assert(r.affected_rows() == 1);
+
+				// mark object as updated
+				r = txn->prepared("mkversion")(opid)(clientID).exec();
+				assert(r.affected_rows() == 1);
 			}
 			ptr = (char*)(hdr + 1) + hdr->get_size();
 		}
@@ -1091,8 +1134,8 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		delete txn;
 		txn = NULL;
 	}
-	// cleanup cache after transaction commit to avoid deteriorated object instances because we do not have invalidation mechanism for PsotgreSQL
-	cache_manager::instance.invalidate_cache(); 
+	// cleanup cache after transaction commit to avoid deteriorated object instances because we do not have invalidation mechanism for PostgreSQL
+	//cache_manager::instance.invalidate_cache(); 
 	return true;
 }
 

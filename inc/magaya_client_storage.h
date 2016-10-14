@@ -9,6 +9,6 @@ public:
 	magaya_client_storage(stid_t sid, dbs_application* app);
 
 protected:
-	virtual boolean open(const char* server_connection_name, const char* login, const char* password) override;
+	virtual boolean open(const char* server_connection_name, const char* login, const char* password, obj_storage* os) override;
 };
 
