@@ -371,7 +371,7 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 
 void pgsql_storage::start_transaction()
 {
-	if (txn == NULL && con != NULL) { 		
+	while (txn == NULL && con != NULL) { 		
 		txn = new work(*con);
 		std::vector<objref_t> deteriorated;
 		{
