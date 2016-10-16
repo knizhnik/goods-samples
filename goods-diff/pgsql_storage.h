@@ -47,8 +47,8 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
     size_t max_preloaded_set_members;
-    time_t lastSyncTime;
     obj_storage* os;
+    int64_t lastSyncTime;
     int64_t clientID;
     mutex cs;
 
