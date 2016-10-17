@@ -205,7 +205,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create table if not exists classes(cpid integer primary key, name text, descriptor bytea)");
 	txn.exec("create table if not exists set_member(opid objref primary key, next objref, prev objref, owner objref, obj objref, key bytea)");
 	txn.exec("create table if not exists root_class(cpid integer)");
-	txn.exec("create table if not exists version_history(opid objref, clientid bigint, modtime serial)");
+	txn.exec("create table if not exists version_history(opid objref, clientid bigint, modtime bigserial)");
 
 	txn.exec("create index if not exists set_member_owner on set_member(owner)");
 	txn.exec("create index if not exists set_member_key on set_member(key)");
@@ -1155,7 +1155,8 @@ void pgsql_storage::rollback_transaction()
 			txn = NULL;
 		}
 	}
-	cache_manager::instance.invalidate_cache(); 
+	// Updated object are invlidated by basic_metaobject::abort_transaction(
+	//cache_manager::instance.invalidate_cache(); 
 }	
 	
 void pgsql_storage::commit_transaction(stid_t      coordinator, 
