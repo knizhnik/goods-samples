@@ -343,7 +343,6 @@ void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAl
 objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith)
 {
 	if (opid_buf_pos == OPID_BUF_SIZE) { 
-		critical_section guard(cs);
 		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
 		for (size_t i = 0; i < OPID_BUF_SIZE; i++) { 
 			opid_buf[i] = rs[i][0].as(objref_t());
@@ -356,7 +355,6 @@ objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t c
 void pgsql_storage::deallocate(objref_t opid)
 { 
 	class_descriptor* desc = lookup_class(GET_CID(opid));
-    critical_section guard(cs);
 	txn->prepared(get_table(desc) + "_delete")(opid).exec();
 }
 
@@ -371,7 +369,8 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 
 void pgsql_storage::start_transaction()
 {
-	while (txn == NULL && con != NULL) { 		
+	cs.enter();	
+	if (txn == NULL && con != NULL) { 				
 		txn = new work(*con);
 		std::vector<objref_t> deteriorated;
 		{
@@ -390,7 +389,6 @@ void pgsql_storage::start_transaction()
 		size_t n = deteriorated.size();
 		if (n != 0) { 
 			cs.leave();
-			object_monitor::lock_global(); 
 			for (size_t i = 0; i < n; i++) { 				
 				hnd_t hnd = object_handle::find(os, deteriorated[i]);
 				if (hnd != 0) { 
@@ -402,15 +400,15 @@ void pgsql_storage::start_transaction()
 				}
 			}
 			object_monitor::unlock_global(); 
-			cs.enter();
 		}				
+	} else { 
+		cs.leave();
 	}
 }
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
 	assert(cpid != RAW_CPID);		
-    critical_section guard(cs);
 	start_transaction();
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
@@ -420,7 +418,6 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
-    critical_section guard(cs);
 	start_transaction();
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
@@ -439,7 +436,6 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 void pgsql_storage::change_class(cpid_t cpid, 
 								 dbs_class_descriptor* dbs_desc)
 {
-    critical_section guard(cs);
 	start_transaction();
 	size_t dbs_desc_size = dbs_desc->get_size();
 	std::string buf((char*)dbs_desc, dbs_desc_size);
@@ -735,7 +731,6 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, objref_t 
 
 void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
-    critical_section guard(cs);
 	start_transaction();
 	load(first_mbr, flags, buf);
 	stid_t sid;
@@ -764,7 +759,6 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
-    critical_section guard(cs);
 	start_transaction();
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
@@ -818,7 +812,6 @@ void pgsql_storage::throw_object(objref_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
-    critical_section guard(cs);
 	buf.put(0);
 	start_transaction();
 }
@@ -1084,79 +1077,71 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 													  dnm_buffer& buf, 
 													  trid_t& tid)
 {
-	{
-		critical_section guard(cs);
-		assert(n_trans_servers == 1);
-		assert(txn != NULL);
-		char* ptr = &buf;
-		char* end = ptr + buf.size();
-		while (ptr < end) { 
-			dbs_object_header* hdr = (dbs_object_header*)ptr;
-			objref_t opid = hdr->get_ref();
-			cpid_t cpid = hdr->get_cpid();		
-			int flags = hdr->get_flags();
-			assert(cpid != RAW_CPID);
-			if (GET_OID(opid) == ROOT_OPID) { 
-				result rs = txn->prepared("get_root").exec();
-				if (rs.empty()) { 
-					txn->prepared("add_root")(cpid).exec();
-					flags |= tof_new;
-				} else { 
-					txn->prepared("set_root")(cpid).exec();
-				}
-				opid = ROOT_OPID;
-			}			
-			class_descriptor* desc = lookup_class(cpid);
-			assert(opid != 0);
-			char* src_refs = (char*)(hdr+1);
-			char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
-			if (desc == &ExternalBlob::self_class) { 
-				std::string blob(src_bins, hdr->get_size());
-				txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
-			} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
-				invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
-				stmt(opid);
-				//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
-				if (desc->n_varying_references != 0) { 
-					src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
-					store_array_of_references(stmt, src_refs, src_bins);
-				} else { 
-					size_t size = hdr->get_size();
-					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
-					assert(left == 0);
-				}
-				result r = stmt.exec();
-				assert(r.affected_rows() == 1);
-
-				// mark object as updated
-				r = txn->prepared("mkversion")(opid)(clientID).exec();
-				assert(r.affected_rows() == 1);
+	assert(n_trans_servers == 1);
+	assert(txn != NULL);
+	char* ptr = &buf;
+	char* end = ptr + buf.size();
+	while (ptr < end) { 
+		dbs_object_header* hdr = (dbs_object_header*)ptr;
+		objref_t opid = hdr->get_ref();
+		cpid_t cpid = hdr->get_cpid();		
+		int flags = hdr->get_flags();
+		assert(cpid != RAW_CPID);
+		if (GET_OID(opid) == ROOT_OPID) { 
+			result rs = txn->prepared("get_root").exec();
+			if (rs.empty()) { 
+				txn->prepared("add_root")(cpid).exec();
+				flags |= tof_new;
+			} else { 
+				txn->prepared("set_root")(cpid).exec();
 			}
-			ptr = (char*)(hdr + 1) + hdr->get_size();
+			opid = ROOT_OPID;
+		}			
+		class_descriptor* desc = lookup_class(cpid);
+		assert(opid != 0);
+		char* src_refs = (char*)(hdr+1);
+		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
+		if (desc == &ExternalBlob::self_class) { 
+			std::string blob(src_bins, hdr->get_size());
+			txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
+		} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
+			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
+			stmt(opid);
+			//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
+			if (desc->n_varying_references != 0) { 
+				src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
+				store_array_of_references(stmt, src_refs, src_bins);
+			} else { 
+				size_t size = hdr->get_size();
+				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
+				assert(left == 0);
+			}
+			result r = stmt.exec();
+			assert(r.affected_rows() == 1);
+
+			// mark object as updated
+			r = txn->prepared("mkversion")(opid)(clientID).exec();
+			assert(r.affected_rows() == 1);
 		}
-		txn->commit();
-		//printf("Commit transaction\n");
-		delete txn;
-		txn = NULL;
+		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
-	// cleanup cache after transaction commit to avoid deteriorated object instances because we do not have invalidation mechanism for PostgreSQL
-	//cache_manager::instance.invalidate_cache(); 
+	txn->commit();
+	//printf("Commit transaction\n");
+	delete txn;
+	txn = NULL;
+	cs.leave();
 	return true;
 }
 
 void pgsql_storage::rollback_transaction()
 {
-	{
-		critical_section guard(cs);
-		if (txn != NULL) { 
-			txn->abort();
-			//printf("Abort transaction\n");
-			delete txn;
-			txn = NULL;
-		}
+	if (txn != NULL) {
+		txn->abort();
+		//printf("Abort transaction\n");
+		delete txn;
+		txn = NULL;
+		cs.leave();
 	}
-	// Updated object are invlidated by basic_metaobject::abort_transaction(
-	//cache_manager::instance.invalidate_cache(); 
 }	
 	
 void pgsql_storage::commit_transaction(stid_t      coordinator, 
@@ -1210,7 +1195,6 @@ ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, ch
 	ref<set_member> mbr;
 	objref_t opid;
 	{
-		critical_section guard(cs);
 		start_transaction();
 		result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 		size_t size = rs.size();
@@ -1341,7 +1325,6 @@ void pgsql_index::remove(ref<set_member> mbr)
 		}
 	} else {
 		objref_t opid = mbr->get_handle()->opid;
-		critical_section guard(pg->cs);
 		pg->statement("index_del")(hnd->opid)(opid).exec();
 	}
 	set_owner::remove(mbr);
@@ -1351,7 +1334,6 @@ void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
 	if (pg != NULL) { 
-		critical_section guard(pg->cs);
 		pg->statement("index_drop")(hnd->opid).exec();	
 	} else { 
 		mem_index.clear();
@@ -1384,7 +1366,6 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 		obj_hnd->obj->mop->make_persistent(obj_hnd, hnd);
 		object_monitor::unlock_global();
 	}
-	critical_section guard(pg->cs);
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
 }
 
@@ -1394,7 +1375,6 @@ anyref pgsql_dictionary::get(const char* name) const
 	objref_t obj;
 	{
 		pgsql_storage* pg = get_storage(this);
-		critical_section guard(pg->cs);
 		result rs = pg->statement("hash_get")(hnd->opid)(name).exec();
 		if (rs.empty()) { 
 			return NULL;
@@ -1408,7 +1388,6 @@ anyref pgsql_dictionary::get(const char* name) const
 boolean pgsql_dictionary::del(const char* name) 
 {
 	pgsql_storage* pg = get_storage(this);
-    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_delall")(hnd->opid)(name).exec();
 	boolean found = rs.affected_rows() != 0;
 	return found;
@@ -1421,7 +1400,6 @@ boolean pgsql_dictionary::del(const char* name, anyref obj)
 		return false;
 	}
 	pgsql_storage* pg = get_storage(this);
-    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_del")(hnd->opid)(name)(obj_hnd->opid).exec();
 	bool found = rs.affected_rows() != 0;
 	return found;
@@ -1436,14 +1414,12 @@ anyref pgsql_dictionary::apply(hash_item::item_function) const
 void pgsql_dictionary::reset()
 {
 	pgsql_storage* pg = get_storage(this);
-    critical_section guard(pg->cs);
 	pg->statement("hash_drop")(hnd->opid).exec();
 }
 
 size_t pgsql_dictionary::get_number_of_elements() const
 {
 	pgsql_storage* pg = get_storage(this);
-    critical_section guard(pg->cs);
 	result rs = pg->statement("hash_size")(hnd->opid).exec();
 	assert(rs.size() == 1);
 	int64_t n_elems = rs[0][0].as(int64_t());
