@@ -372,6 +372,7 @@ void pgsql_storage::start_transaction()
 	cs.enter();	
 	if (txn == NULL && con != NULL) { 				
 		txn = new work(*con);
+		current = task::current();
 		std::vector<objref_t> deteriorated;
 		{
 			int64_t sync = txn->prepared("lastsync").exec()[0][0].as(int64_t());
@@ -1131,6 +1132,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 	//printf("Commit transaction\n");
 	delete txn;
 	txn = NULL;
+	current = NULL;
 	cs.leave();
 	return true;
 }
@@ -1142,6 +1144,7 @@ void pgsql_storage::rollback_transaction()
 		//printf("Abort transaction\n");
 		delete txn;
 		txn = NULL;
+		current = NULL;
 		cs.leave();
 	}
 }	

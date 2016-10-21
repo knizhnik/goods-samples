@@ -51,9 +51,10 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     int64_t lastSyncTime;
     int64_t clientID;
     mutex cs;
+    task* current;
 
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), lastSyncTime(0) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), lastSyncTime(0), current(NULL) {}
 	
     virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
