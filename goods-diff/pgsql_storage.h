@@ -53,6 +53,20 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     mutex cs;
     task* current;
 
+    bool start_transaction();
+    void commit_transaction();
+
+    struct autocommit { 
+	pgsql_storage* storage;
+	
+	autocommit(pgsql_storage* s) : storage(s->start_transaction() ? s : NULL) {}
+	~autocommit() { 
+	    if (storage) { 
+		storage->commit_transaction();
+	    }
+	}
+    };
+	
   public:
     pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), lastSyncTime(0), current(NULL) {}
 	
@@ -176,7 +190,6 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     void hash_drop(objref_t hash);
     void hash_size(objref_t hash);
     void create_table(class_descriptor* desc);
-    void start_transaction();
 };
 
 

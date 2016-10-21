@@ -367,11 +367,23 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 {
 }
 
-void pgsql_storage::start_transaction()
+void pgsql_storage::commit_transaction()
 {
+	txn->commit();
+	//printf("Commit transaction\n");
+	delete txn;
+	txn = NULL;
+	current = NULL;
+	cs.leave();
+}
+	
+bool pgsql_storage::start_transaction()
+{
+	bool started = false;
 	cs.enter();	
 	if (txn == NULL && con != NULL) { 				
 		txn = new work(*con);
+		started = true;
 		current = task::current();
 		std::vector<objref_t> deteriorated;
 		{
@@ -405,12 +417,13 @@ void pgsql_storage::start_transaction()
 	} else { 
 		cs.leave();
 	}
+	return started;
 }
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
+	autocommit of(this);
 	assert(cpid != RAW_CPID);		
-	start_transaction();
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
 	binarystring desc = binarystring(rs[0][0]);
@@ -419,7 +432,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
-	start_transaction();
+	autocommit of(this);
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
 	std::string buf((char*)dbs_desc, dbs_desc_size);	
@@ -437,7 +450,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 void pgsql_storage::change_class(cpid_t cpid, 
 								 dbs_class_descriptor* dbs_desc)
 {
-	start_transaction();
+	autocommit of(this);
 	size_t dbs_desc_size = dbs_desc->get_size();
 	std::string buf((char*)dbs_desc, dbs_desc_size);
 	((dbs_class_descriptor*)buf.data())->pack();
@@ -732,7 +745,7 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, objref_t 
 
 void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
-	start_transaction();
+	autocommit of(this);
 	load(first_mbr, flags, buf);
 	stid_t sid;
 	objref_t obj;
@@ -760,7 +773,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
-	start_transaction();
+	autocommit of(this);
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
 		objref_t opid = opp[i];
@@ -815,7 +828,7 @@ void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
     object_monitor::unlock_global();
 	buf.put(0);
-	start_transaction();
+	autocommit of(this);
     object_monitor::lock_global();
 }
 
@@ -1128,12 +1141,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 		}
 		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
-	txn->commit();
-	//printf("Commit transaction\n");
-	delete txn;
-	txn = NULL;
-	current = NULL;
-	cs.leave();
+	commit_transaction();
 	return true;
 }
 
@@ -1191,7 +1199,7 @@ inline pgsql_storage* get_storage(object const* obj)
 
 invocation pgsql_storage::statement(char const* name)
 {
-	start_transaction();
+	autocommit of(this);
 	return txn->prepared(name);
 }
 
@@ -1200,7 +1208,7 @@ ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, ch
 	ref<set_member> mbr;
 	objref_t opid;
 	{
-		start_transaction();
+		autocommit of(this); 
 		result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 		size_t size = rs.size();
 		if (size == 0) { 
