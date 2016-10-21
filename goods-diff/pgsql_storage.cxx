@@ -812,8 +812,10 @@ void pgsql_storage::throw_object(objref_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
+    object_monitor::unlock_global();
 	buf.put(0);
 	start_transaction();
+    object_monitor::lock_global();
 }
 
 static void store_array_of_references(invocation& stmt, char* src_refs, char* src_bins)
