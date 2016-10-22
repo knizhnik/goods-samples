@@ -828,7 +828,7 @@ void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
     object_monitor::unlock_global();
 	buf.put(0);
-	autocommit of(this);
+	start_transaction();
     object_monitor::lock_global();
 }
 
