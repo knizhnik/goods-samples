@@ -176,7 +176,7 @@ inline bool is_btree(std::string name)
 	
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password, obj_storage* storage) 
 {
-    critical_section guard(cs);
+    critical_section at(cs);
 	os = storage;
 	opid_buf_pos = OPID_BUF_SIZE;
 	std::stringstream connStr;
@@ -369,21 +369,20 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 
 void pgsql_storage::commit_transaction()
 {
-	txn->commit();
-	//printf("Commit transaction\n");
-	delete txn;
-	txn = NULL;
-	current = NULL;
-	cs.leave();
+	assert(nesting != 0);
+	if (--nesting == 0) { 
+		txn->commit();
+		//printf("Commit transaction\n");
+		delete txn;
+		txn = NULL;
+	}
 }
 	
-bool pgsql_storage::start_transaction()
+void pgsql_storage::start_transaction()
 {
-	bool started = false;
-	cs.enter();	
 	if (txn == NULL && con != NULL) { 				
 		txn = new work(*con);
-		started = true;
+		nesting = 1;
 		current = task::current();
 		std::vector<objref_t> deteriorated;
 		{
@@ -400,8 +399,10 @@ bool pgsql_storage::start_transaction()
 		}
 		// Invalidation of objects need global lock. To avoid deadlock unlock first storage mutex.
 		size_t n = deteriorated.size();
-		if (n != 0) { 
+		if (n != 0) {
+			validation = true;
 			cs.leave();
+			object_monitor::lock_global(); 
 			for (size_t i = 0; i < n; i++) { 				
 				hnd_t hnd = object_handle::find(os, deteriorated[i]);
 				if (hnd != 0) { 
@@ -413,11 +414,20 @@ bool pgsql_storage::start_transaction()
 				}
 			}
 			object_monitor::unlock_global(); 
+			cs.enter();	
+			validation = false;
+			if (nesting > 1) {
+				validated.signal();
+				validated.reset();
+			}
 		}				
 	} else { 
-		cs.leave();
+		nesting += 1;
+		if (validation) { 
+			validated.wait();
+			assert(!validation);
+		}
 	}
-	return started;
 }
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
@@ -826,10 +836,9 @@ void pgsql_storage::throw_object(objref_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
-    object_monitor::unlock_global();
+	critical_section at(cs);
 	buf.put(0);
 	start_transaction();
-    object_monitor::lock_global();
 }
 
 static void store_array_of_references(invocation& stmt, char* src_refs, char* src_bins)
@@ -1093,6 +1102,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 													  dnm_buffer& buf, 
 													  trid_t& tid)
 {
+	critical_section at(cs);
 	assert(n_trans_servers == 1);
 	assert(txn != NULL);
 	char* ptr = &buf;

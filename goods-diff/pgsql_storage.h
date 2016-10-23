@@ -51,24 +51,30 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     int64_t lastSyncTime;
     int64_t clientID;
     mutex cs;
+    eventex validated;
+    bool  validation;
+    int   nesting;
     task* current;
 
-    bool start_transaction();
+    void start_transaction();
     void commit_transaction();
 
-    struct autocommit { 
+    struct autocommit : critical_section { 
 	pgsql_storage* storage;
 	
-	autocommit(pgsql_storage* s) : storage(s->start_transaction() ? s : NULL) {}
-	~autocommit() { 
-	    if (storage) { 
-		storage->commit_transaction();
-	    }
+	autocommit(pgsql_storage* s) : critical_section(s->cs), storage(s) 
+	{
+	    storage->start_transaction();
+	}
+	~autocommit() 
+	{ 
+	    storage->commit_transaction();
 	}
     };
 	
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), lastSyncTime(0), current(NULL) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), 
+	lastSyncTime(0), validated(cs), validation(false), nesting(0), current(NULL) {}
 	
     virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
@@ -271,9 +277,11 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
     METACLASS_DECLARATIONS(pgsql_dictionary, dictionary);
     
     pgsql_dictionary(obj_storage* os) : dictionary(self_class) {
-	((pgsql_storage*)os->storage)->start_transaction();
 	object_monitor::lock_global();
-	mop->make_persistent(hnd, os);
+	{
+	    pgsql_storage::autocommit of((pgsql_storage*)os->storage);
+	    mop->make_persistent(hnd, os);
+	}
 	object_monitor::unlock_global();
     }
 
