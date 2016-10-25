@@ -34,6 +34,19 @@ const size_t OPID_BUF_SIZE = 64;
 class pgsql_index;
 class pgsql_dictionary;
 
+struct pgsql_session : public transaction_manager_extension 
+{ 
+    work* txn;
+    connection* con;
+
+    pgsql_session(connection* _con) : txn(NULL), con(_con) {}
+
+    ~pgsql_session() { 
+	delete txn;
+	delete con;
+    }
+};
+
 //
 // This class provides bridge to PostgreSQL
 //
@@ -41,40 +54,46 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     friend class pgsql_index;
     friend class pgsql_dictionary;
 
-    work* txn;
-    connection* con;
+    // Mutable field requiring synchronization
     objref_t opid_buf[OPID_BUF_SIZE];
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
+    int64_t lastSyncTime;
+
+    // read-only fields
     size_t max_preloaded_set_members;
     obj_storage* os;
-    int64_t lastSyncTime;
     int64_t clientID;
+    std::string connString;
+
     mutex cs;
-    eventex validated;
-    bool  validation;
-    int   nesting;
-    task* current;
 
-    void start_transaction();
+    work* start_transaction(bool& toplevel);
     void commit_transaction();
+    connection* open_connection();
 
-    struct autocommit : critical_section { 
+    struct autocommit { 
 	pgsql_storage* storage;
-	
-	autocommit(pgsql_storage* s) : critical_section(s->cs), storage(s) 
-	{
-	    storage->start_transaction();
+	work *txn;
+	bool toplevel;
+
+	work* operator->() { 
+	    return txn;
 	}
-	~autocommit() 
-	{ 
-	    storage->commit_transaction();
+
+	autocommit(pgsql_storage* s) : storage(s) {
+	    txn = storage->start_transaction(toplevel);
+	}
+
+	~autocommit() { 
+	    if (toplevel) { 
+		storage->commit_transaction();
+	    }
 	}
     };
 	
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), txn(NULL), con(NULL), opid_buf_pos(OPID_BUF_SIZE), max_preloaded_set_members(10), 
-	lastSyncTime(0), validated(cs), validation(false), nesting(0), current(NULL) {}
+    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), opid_buf_pos(OPID_BUF_SIZE), lastSyncTime(0), max_preloaded_set_members(10) {}
 	
     virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
@@ -208,6 +227,9 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
     virtual ref<set_member> find(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> find(const char* str) const;
     virtual ref<set_member> find(skey_t key) const;
+    virtual ref<set_member> find(const wchar_t* str) const {
+	return set_owner::find((const wchar_t*)str);       
+    }
     virtual ref<set_member> findGE(skey_t key) const;
     virtual ref<set_member> findGE(const char* str, size_t len, skey_t key) const;
     virtual ref<set_member> findGE(const char* str) const;
@@ -234,13 +256,13 @@ class GOODS_DLL_EXPORT pgsql_index : public B_tree
     virtual void remove(ref<set_member> mbr);
     virtual void clear();
 
-    static ref<pgsql_index> create(anyref obj) {
+    static ref<pgsql_index> create(anyref obj, nat4 size = 0) {
         return NEW pgsql_index(obj);
     }
 
     METACLASS_DECLARATIONS(pgsql_index, B_tree);
     pgsql_index(anyref const& obj) : B_tree(self_class, obj, 0) {}
-    pgsql_index(class_descriptor& desc, ref<object> const& obj) : B_tree(desc, obj, 0) {}
+    pgsql_index(class_descriptor& desc, ref<object> const& obj = NULL) : B_tree(desc, obj, 0) {}
 };
 
 class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary { 

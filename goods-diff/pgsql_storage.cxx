@@ -176,7 +176,6 @@ inline bool is_btree(std::string name)
 	
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password, obj_storage* storage) 
 {
-    critical_section at(cs);
 	os = storage;
 	opid_buf_pos = OPID_BUF_SIZE;
 	std::stringstream connStr;
@@ -188,7 +187,9 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	if (password != NULL && *password) { 
 		connStr << " password=" << password;
 	}
-	con = new connection(connStr.str()); // database name is expected to be equal to user name
+	connString = connStr.str();
+
+	connection* con = open_connection();
 	
 	try {
 		work txn(*con);	
@@ -216,6 +217,117 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
 	txn.exec("create sequence if not exists client_sequence");
 		
+
+	if (txn.exec("select numbackends from pg_stat_database where datname=current_database()")[0][0].as(int64_t()) == 1) {
+		txn.exec("delete from version_history");
+	}
+
+	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
+		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
+			if (cls == &object::self_class || cls->mop->is_transient() || (cls->class_attr & class_descriptor::cls_non_relational) || (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) { 
+				continue;
+			}
+			class_descriptor* root_class = get_root_class(cls);
+			std::string table_name(root_class->name);
+			std::string class_name(cls->name);
+			if (root_class == &set_member::self_class && (cls->class_attr & class_descriptor::cls_binary)) { 
+				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
+			}
+
+			if (table_name == class_name) {
+				std::stringstream sql;
+				sql << "create table if not exists \"" << class_name << "\"(opid objref primary key";
+				std::set<std::string> columns;
+				define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
+
+				// for all derived classes
+				if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
+					for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
+						for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
+							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
+								&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
+							{
+								for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
+									if (base == cls) { 
+										define_table_columns(columns, "", derived->fields, sql, -1);
+										break;
+									}
+								}
+							}
+						}
+					}
+				}													
+				sql << ")";
+				//printf("%s\n", sql.str().c_str());
+				txn.exec(sql.str());			   
+			}
+		}
+	}
+
+	clientID = txn.exec("select nextval('client_sequence')")[0][0].as(int64_t()); 
+	lastSyncTime = txn.prepared("lastsync").exec()[0][0].as(int64_t());
+	txn.commit();
+	return true;
+}
+
+void pgsql_storage::close()
+{
+}
+
+
+
+void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
+								  objref_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
+{
+	// Bulk allocate at obj_storage level is disabled 
+	assert(false);
+}
+
+objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith)
+{	
+	autocommit txn(this); 
+	critical_section on(cs);
+	if (opid_buf_pos == OPID_BUF_SIZE) { 
+		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
+		for (size_t i = 0; i < OPID_BUF_SIZE; i++) { 
+			opid_buf[i] = rs[i][0].as(objref_t());
+		}
+		opid_buf_pos = 0;
+	}
+	return MAKE_OBJREF(cpid, opid_buf[opid_buf_pos++]);
+}
+
+void pgsql_storage::deallocate(objref_t opid)
+{ 
+	autocommit txn(this); 
+	class_descriptor* desc = lookup_class(GET_CID(opid));
+	txn->prepared(get_table(desc) + "_delete")(opid).exec();
+}
+
+boolean pgsql_storage::lock(objref_t opid, lck_t lck, int attr)
+{
+	return true;
+}
+
+void pgsql_storage::unlock(objref_t opid, lck_t lck)
+{
+}
+
+void pgsql_storage::commit_transaction()
+{
+    transaction_manager* mng = transaction_manager::get();
+	pgsql_session* session = (pgsql_session*)mng->extension;
+	if (session != NULL && session->txn != NULL) { 
+		session->txn->commit();
+		//printf("Commit transaction\n");
+		delete session->txn;
+		session->txn = NULL;
+	}
+}
+	
+connection* pgsql_storage::open_connection()
+{
+	connection* con = new connection(connString); // database name is expected to be equal to user name
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1)"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
 	con->prepare("get_root", "select cpid from root_class"); 
@@ -244,12 +356,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	con->prepare("write_file", "select writeEfile($1, $2)");
 	con->prepare("read_file", "select readEfile($1)");
 
-	if (txn.exec("select numbackends from pg_stat_database where datname=current_database()")[0][0].as(int64_t()) == 1) {
-		txn.exec("delete from version_history");
-	}
-
-	clientID = txn.exec("select nextval('client_sequence')")[0][0].as(int64_t()); 
-	lastSyncTime = txn.prepared("lastsync").exec()[0][0].as(int64_t());
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
@@ -261,9 +367,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
 			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
-			if (root_class == &set_member::self_class && (cls->class_attr & class_descriptor::cls_binary)) { 
-				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
-			}
 			{
 				std::stringstream sql;			
 				sql << "insert into \"" << table_name << "\" (opid";
@@ -288,32 +391,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				con->prepare(class_name + "_update", sql.str());
 			}
 			if (table_name == class_name) {
-				std::stringstream sql;
-				sql << "create table if not exists \"" << class_name << "\"(opid objref primary key";
-				std::set<std::string> columns;
-				define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
-
-				// for all derived classes
-				if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
-					for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
-						for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
-								&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
-							{
-								for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
-									if (base == cls) { 
-										define_table_columns(columns, "", derived->fields, sql, -1);
-										break;
-									}
-								}
-							}
-						}
-					}
-				}													
-				sql << ")";
-				//printf("%s\n", sql.str().c_str());
-				txn.exec(sql.str());			   
-
 				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
 				con->prepare(table_name + "_loadobj", std::string("select * from \"") + table_name + "\" where opid=$1");
 				con->prepare(table_name + "_loadobj_for_update", std::string("select * from \"") + table_name + "\" where opid=$1 for update");
@@ -322,117 +399,55 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			}
 		}	
 	}	
-	txn.commit();
-	return true;
-}
+	return con;
+}	
 
-void pgsql_storage::close()
+work* pgsql_storage::start_transaction(bool& toplevel)
 {
-	delete con;
-}
-
-
-
-void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
-								  objref_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
-{
-	// Bulk allocate at obj_storage level is disabled 
-	assert(false);
-}
-
-objref_t pgsql_storage::allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith)
-{
-	if (opid_buf_pos == OPID_BUF_SIZE) { 
-		result rs = txn->prepared("new_oid")(OPID_BUF_SIZE).exec();
-		for (size_t i = 0; i < OPID_BUF_SIZE; i++) { 
-			opid_buf[i] = rs[i][0].as(objref_t());
-		}
-		opid_buf_pos = 0;
+    transaction_manager* mng = transaction_manager::get();
+	pgsql_session* session = (pgsql_session*)mng->extension;
+	if (session == NULL) { 
+		mng->extension = session = new pgsql_session(open_connection());
 	}
-	return MAKE_OBJREF(cpid, opid_buf[opid_buf_pos++]);
-}
-
-void pgsql_storage::deallocate(objref_t opid)
-{ 
-	class_descriptor* desc = lookup_class(GET_CID(opid));
-	txn->prepared(get_table(desc) + "_delete")(opid).exec();
-}
-
-boolean pgsql_storage::lock(objref_t opid, lck_t lck, int attr)
-{
-	return true;
-}
-
-void pgsql_storage::unlock(objref_t opid, lck_t lck)
-{
-}
-
-void pgsql_storage::commit_transaction()
-{
-	assert(nesting != 0);
-	if (--nesting == 0) { 
-		txn->commit();
-		//printf("Commit transaction\n");
-		delete txn;
-		txn = NULL;
-	}
-}
-	
-void pgsql_storage::start_transaction()
-{
-	if (txn == NULL && con != NULL) { 				
-		txn = new work(*con);
-		nesting = 1;
-		current = task::current();
+	if (session->txn == NULL) { 				
+		session->txn = new work(*session->con);
 		std::vector<objref_t> deteriorated;
-		{
-			int64_t sync = txn->prepared("lastsync").exec()[0][0].as(int64_t());
-			result rs = txn->prepared("deteriorated")(lastSyncTime)(clientID).exec();
-			lastSyncTime = sync;
-			deteriorated.resize(rs.size());
-			size_t i = 0;
-			for (result::const_iterator it = rs.begin(); it != rs.end(); ++it) {
-				result::tuple t = *it;
-				deteriorated[i++] = t[0].as(objref_t());
-			}
-			assert(i == deteriorated.size());
+		int64_t sync = session->txn->prepared("lastsync").exec()[0][0].as(int64_t());
+		result rs = session->txn->prepared("deteriorated")(lastSyncTime)(clientID).exec();
+		deteriorated.resize(rs.size());
+		size_t i = 0;
+		for (result::const_iterator it = rs.begin(); it != rs.end(); ++it) {
+			result::tuple t = *it;
+			deteriorated[i++] = t[0].as(objref_t());
 		}
+		assert(i == deteriorated.size());
 		// Invalidation of objects need global lock. To avoid deadlock unlock first storage mutex.
 		size_t n = deteriorated.size();
-		if (n != 0) {
-			validation = true;
-			cs.leave();
-			object_monitor::lock_global(); 
-			for (size_t i = 0; i < n; i++) { 				
-				hnd_t hnd = object_handle::find(os, deteriorated[i]);
-				if (hnd != 0) { 
-					if (IS_VALID_OBJECT(hnd->obj)) { 
-						hnd->obj->mop->invalidate(hnd); 
-					} else { 
-						hnd->obj = INVALIDATED_OBJECT; 
-					}
+		object_monitor::lock_global(); 
+		for (size_t i = 0; i < n; i++) { 				
+			hnd_t hnd = object_handle::find(os, deteriorated[i]);
+			if (hnd != 0) { 
+				if (IS_VALID_OBJECT(hnd->obj)) { 
+					hnd->obj->mop->invalidate(hnd); 
+				} else { 
+					hnd->obj = INVALIDATED_OBJECT; 
 				}
 			}
-			object_monitor::unlock_global(); 
-			cs.enter();	
-			validation = false;
-			if (nesting > 1) {
-				validated.signal();
-				validated.reset();
-			}
-		}				
-	} else { 
-		nesting += 1;
-		if (validation) { 
-			validated.wait();
-			assert(!validation);
 		}
+		if (lastSyncTime < sync) { 
+			lastSyncTime = sync;
+		}
+		object_monitor::unlock_global(); 
+		toplevel = true;
+	} else {
+		toplevel = false;
 	}
+	return session->txn;
 }
 
 void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	assert(cpid != RAW_CPID);		
 	result rs = txn->prepared("get_class")(cpid).exec();
 	assert(rs.size() == 1);
@@ -442,7 +457,7 @@ void pgsql_storage::get_class(cpid_t cpid, dnm_buffer& buf)
 
 cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	size_t dbs_desc_size = dbs_desc->get_size();	
 	std::string name(dbs_desc->name());
 	std::string buf((char*)dbs_desc, dbs_desc_size);	
@@ -460,7 +475,7 @@ cpid_t pgsql_storage::put_class(dbs_class_descriptor* dbs_desc)
 void pgsql_storage::change_class(cpid_t cpid, 
 								 dbs_class_descriptor* dbs_desc)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	size_t dbs_desc_size = dbs_desc->get_size();
 	std::string buf((char*)dbs_desc, dbs_desc_size);
 	((dbs_class_descriptor*)buf.data())->pack();
@@ -475,6 +490,7 @@ void pgsql_storage::load(objref_t opid, int flags, dnm_buffer& buf)
 
 class_descriptor* pgsql_storage::lookup_class(cpid_t cpid)
 {
+	critical_section on(cs);
 	class_descriptor* desc = cpid < descriptor_table.size() ? descriptor_table[cpid] : NULL;
 	if (desc == NULL) { 
 		dnm_buffer cls_buf;
@@ -755,7 +771,7 @@ objref_t pgsql_storage::load_query_result(result& rs, dnm_buffer& buf, objref_t 
 
 void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* query, nat4 buf_size, int flags, nat4 max_members, dnm_buffer& buf)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	load(first_mbr, flags, buf);
 	stid_t sid;
 	objref_t obj;
@@ -783,7 +799,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 void pgsql_storage::load(objref_t* opp, int n_objects, 
 						 int flags, dnm_buffer& buf)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	buf.put(0);
 	for (int i = 0; i < n_objects; i++) { 
 		objref_t opid = opp[i];
@@ -836,9 +852,9 @@ void pgsql_storage::throw_object(objref_t opid)
 
 void pgsql_storage::begin_transaction(dnm_buffer& buf)
 {
-	critical_section at(cs);
+	bool toplevel;
 	buf.put(0);
-	start_transaction();
+	start_transaction(toplevel);
 }
 
 static void store_array_of_references(invocation& stmt, char* src_refs, char* src_bins)
@@ -893,11 +909,11 @@ static void store_int_array(invocation& stmt, char* src_bins, int elem_size, int
 }
 
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated)
-{
+{	
 	if (first == NULL) {
 		return size;
 	}
-
+	autocommit txn(this);
 	field_descriptor* field = first;	
     do { 
 		if (field->loc.n_items != 1) { 
@@ -1102,54 +1118,55 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 													  dnm_buffer& buf, 
 													  trid_t& tid)
 {
-	critical_section at(cs);
-	assert(n_trans_servers == 1);
-	assert(txn != NULL);
-	char* ptr = &buf;
-	char* end = ptr + buf.size();
-	while (ptr < end) { 
-		dbs_object_header* hdr = (dbs_object_header*)ptr;
-		objref_t opid = hdr->get_ref();
-		cpid_t cpid = hdr->get_cpid();		
-		int flags = hdr->get_flags();
-		assert(cpid != RAW_CPID);
-		if (GET_OID(opid) == ROOT_OPID) { 
-			result rs = txn->prepared("get_root").exec();
-			if (rs.empty()) { 
-				txn->prepared("add_root")(cpid).exec();
-				flags |= tof_new;
-			} else { 
-				txn->prepared("set_root")(cpid).exec();
-			}
-			opid = ROOT_OPID;
-		}			
-		class_descriptor* desc = lookup_class(cpid);
-		assert(opid != 0);
-		char* src_refs = (char*)(hdr+1);
-		char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
-		if (desc == &ExternalBlob::self_class) { 
-			std::string blob(src_bins, hdr->get_size());
-			txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
-		} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
-			invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
-			stmt(opid);
-			//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
-			if (desc->n_varying_references != 0) { 
-				src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
-				store_array_of_references(stmt, src_refs, src_bins);
-			} else { 
-				size_t size = hdr->get_size();
-				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
-				assert(left == 0);
-			}
-			result r = stmt.exec();
-			assert(r.affected_rows() == 1);
+	{
+		autocommit txn(this);
+		assert(n_trans_servers == 1);
+		char* ptr = &buf;
+		char* end = ptr + buf.size();
+		while (ptr < end) { 
+			dbs_object_header* hdr = (dbs_object_header*)ptr;
+			objref_t opid = hdr->get_ref();
+			cpid_t cpid = hdr->get_cpid();		
+			int flags = hdr->get_flags();
+			assert(cpid != RAW_CPID);
+			if (GET_OID(opid) == ROOT_OPID) { 
+				result rs = txn->prepared("get_root").exec();
+				if (rs.empty()) { 
+					txn->prepared("add_root")(cpid).exec();
+					flags |= tof_new;
+				} else { 
+					txn->prepared("set_root")(cpid).exec();
+				}
+				opid = ROOT_OPID;
+			}			
+			class_descriptor* desc = lookup_class(cpid);
+			assert(opid != 0);
+			char* src_refs = (char*)(hdr+1);
+			char* src_bins = src_refs + desc->n_fixed_references*sizeof(dbs_reference_t);
+			if (desc == &ExternalBlob::self_class) { 
+				std::string blob(src_bins, hdr->get_size());
+				txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
+			} else if ((flags & tof_new) != 0 || hdr->get_size() != 0) { 	
+				invocation stmt = txn->prepared(std::string(desc->name) + ((flags & tof_new) ? "_insert" : "_update"));
+				stmt(opid);
+				//printf("%s object %d\n", (flags & tof_new) ? "Insert" : "Update", opid);
+				if (desc->n_varying_references != 0) { 
+					src_bins += (hdr->get_size() - desc->packed_fixed_size)/desc->packed_varying_size*desc->n_varying_references*sizeof(dbs_reference_t);
+					store_array_of_references(stmt, src_refs, src_bins);
+				} else { 
+					size_t size = hdr->get_size();
+					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
+					assert(left == 0);
+				}
+				result r = stmt.exec();
+				assert(r.affected_rows() == 1);
 
-			// mark object as updated
-			r = txn->prepared("mkversion")(opid)(clientID).exec();
-			assert(r.affected_rows() == 1);
+				// mark object as updated
+				r = txn->prepared("mkversion")(opid)(clientID).exec();
+				assert(r.affected_rows() == 1);
+			}
+			ptr = (char*)(hdr + 1) + hdr->get_size();
 		}
-		ptr = (char*)(hdr + 1) + hdr->get_size();
 	}
 	commit_transaction();
 	return true;
@@ -1157,16 +1174,13 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 
 void pgsql_storage::rollback_transaction()
 {
-	critical_section at(cs);
-	if (txn != NULL) {
-		assert(nesting != 0);
-		if (--nesting == 0) { 
-			txn->abort();
-			//printf("Abort transaction\n");
-			delete txn;
-			txn = NULL;
-			current = NULL;
-		}
+    transaction_manager* mng = transaction_manager::get();
+	pgsql_session* session = (pgsql_session*)mng->extension;
+	if (session != NULL && session->txn != NULL) { 
+		session->txn->abort();
+		//printf("Abort transaction\n");
+		delete session->txn;
+		session->txn = NULL;
 	}
 }	
 	
@@ -1190,8 +1204,8 @@ void pgsql_storage::push_message(int message) {}
 	
 nat8 pgsql_storage::get_used_size()
 {
-	work txn(*con);
-	result rs = txn.exec("select pg_database_size(current_database())");	
+	autocommit txn(this);
+	result rs = txn->exec("select pg_database_size(current_database())");	
 	return rs[0][0].as(nat8());
 }
 
@@ -1212,7 +1226,7 @@ inline pgsql_storage* get_storage(object const* obj)
 
 invocation pgsql_storage::statement(char const* name)
 {
-	autocommit of(this);
+	autocommit txn(this);
 	return txn->prepared(name);
 }
 
@@ -1221,7 +1235,7 @@ ref<set_member> pgsql_storage::index_find(database const* db, objref_t index, ch
 	ref<set_member> mbr;
 	objref_t opid;
 	{
-		autocommit of(this); 
+		autocommit txn(this); 
 		result rs = txn->prepared(op)(index)(txn->esc_raw(key)).exec();
 		size_t size = rs.size();
 		if (size == 0) { 
