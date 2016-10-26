@@ -145,6 +145,7 @@ static char const* map_type(field_descriptor* field)
 	default:
 		assert(false);
 	}
+	return "";
 }
 
 static void define_table_columns(std::set<std::string>& columns, std::string const& prefix, field_descriptor* first, std::stringstream& sql, int inheritance_depth)
