@@ -275,7 +275,7 @@ void pgsql_storage::close()
 {
 	pgsql_session* session, *next;
 	for (session = sessions; session != NULL; session = next) { 
-		session = next;
+		next = session->next;
 		delete session;
 	}
 }
@@ -293,7 +293,7 @@ pgsql_session* pgsql_storage::get_session()
 	return session;
 }
 
-void pgsql_srorage::release_session()
+void pgsql_storage::release_session(pgsql_session* session)
 {
 	critical_section on(cs);
 	session->next = sessions;

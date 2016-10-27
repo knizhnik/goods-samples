@@ -40,7 +40,7 @@ struct pgsql_session
     connection* con;
     pgsql_session* next;
 
-    pgsql_session(connection* _con, pgsql_session* chain) : txn(NULL), con(_con), next(chain) {}
+    pgsql_session(connection* _con) : txn(NULL), con(_con) {}
 
     ~pgsql_session() { 
 	delete txn;
@@ -75,6 +75,18 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     connection* open_connection();
     pgsql_session* get_session();
     void release_session(pgsql_session* session);
+
+    class pgsql_extension : public transaction_manager_extension {
+    public:
+	pgsql_storage* const storage;
+	pgsql_session* const session;
+	
+	pgsql_extension(pgsql_storage* _storage) : storage(_storage), session(_storage->get_session()) {}
+	
+	~pgsql_extension() { 
+	    storage->release_session(session);
+	}
+    };
 
     struct autocommit { 
 	pgsql_storage* storage;
@@ -316,16 +328,5 @@ class GOODS_DLL_EXPORT pgsql_dictionary : public dictionary {
     }
 };    
 
-class pgsql_extension : public transaction_manager_extension {
-  public:
-    pgsql_storage* const storage;
-    pgsql_session* const session;
-
-    pgsql_extension(pgsql_storage* _storage) : storage(_storage), session(_storage->get_session()) {}
-
-    ~pgsql_extension() { 
-	storage->release_session();
-    }
-};
 
 #endif
