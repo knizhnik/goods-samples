@@ -273,9 +273,34 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 void pgsql_storage::close()
 {
+	pgsql_session* session, *next;
+	for (session = sessions; session != NULL; session = next) { 
+		session = next;
+		delete session;
+	}
 }
 
 
+pgsql_session* pgsql_storage::get_session() 
+{
+	critical_section on(cs);
+	pgsql_session* session = sessions;
+	if (session == NULL) { 
+		session = new pgsql_session(open_connection());
+	} else {
+		sessions = session->next;
+	}
+	return session;
+}
+
+void pgsql_srorage::release_session()
+{
+	critical_section on(cs);
+	session->next = sessions;
+	sessions = session;
+}
+
+	
 
 void pgsql_storage::bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
 								  objref_t opid_buf[], size_t nReservedOids, hnd_t clusterWith[])
@@ -317,12 +342,15 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 void pgsql_storage::commit_transaction()
 {
     transaction_manager* mng = transaction_manager::get();
-	pgsql_session* session = (pgsql_session*)mng->extension;
-	if (session != NULL && session->txn != NULL) { 
-		session->txn->commit();
-		//printf("Commit transaction\n");
-		delete session->txn;
-		session->txn = NULL;
+	pgsql_extension* extension = (pgsql_extension*)mng->extension;
+	if (extension != NULL) { 
+		pgsql_session* session = extension->session;
+		if (session->txn != NULL) { 
+			session->txn->commit();
+			//printf("Commit transaction\n");
+			delete session->txn;
+			session->txn = NULL;
+		}
 	}
 }
 	
@@ -406,10 +434,11 @@ connection* pgsql_storage::open_connection()
 work* pgsql_storage::start_transaction(bool& toplevel)
 {
     transaction_manager* mng = transaction_manager::get();
-	pgsql_session* session = (pgsql_session*)mng->extension;
-	if (session == NULL) { 
-		mng->extension = session = new pgsql_session(open_connection());
+	pgsql_extension* extension = (pgsql_extension*)mng->extension;
+	if (extension == NULL) { 
+		mng->extension = extension = new pgsql_extension(this);
 	}
+	pgsql_session* session = extension->session;
 	if (session->txn == NULL) { 				
 		session->txn = new work(*session->con);
 		std::vector<objref_t> deteriorated;
@@ -1176,12 +1205,15 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 void pgsql_storage::rollback_transaction()
 {
     transaction_manager* mng = transaction_manager::get();
-	pgsql_session* session = (pgsql_session*)mng->extension;
-	if (session != NULL && session->txn != NULL) { 
-		session->txn->abort();
-		//printf("Abort transaction\n");
-		delete session->txn;
-		session->txn = NULL;
+	pgsql_extension* extension = (pgsql_extension*)mng->extension;
+	if (extension != NULL) { 
+		pgsql_session* session = extension->session;
+		if (session->txn != NULL) { 
+			session->txn->abort();
+			//printf("Abort transaction\n");
+			delete session->txn;
+			session->txn = NULL;
+		}
 	}
 }	
 	
