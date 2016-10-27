@@ -1398,6 +1398,7 @@ void pgsql_index::remove(ref<set_member> mbr)
 		}
 	} else {
 		objref_t opid = mbr->get_handle()->opid;
+		pgsql_storage::autocommit txn(pg);
 		pg->statement("index_del")(hnd->opid)(opid).exec();
 	}
 	set_owner::remove(mbr);
@@ -1407,6 +1408,7 @@ void pgsql_index::clear()
 {
 	pgsql_storage* pg = get_storage(this);
 	if (pg != NULL) { 
+		pgsql_storage::autocommit txn(pg);
 		pg->statement("index_drop")(hnd->opid).exec();	
 	} else { 
 		mem_index.clear();
@@ -1439,6 +1441,7 @@ void pgsql_dictionary::put(const char* name, anyref obj)
 		obj_hnd->obj->mop->make_persistent(obj_hnd, hnd);
 		object_monitor::unlock_global();
 	}
+	pgsql_storage::autocommit txn(pg);
 	pg->statement("hash_put")(hnd->opid)(name)(obj_hnd->opid).exec();	
 }
 
@@ -1448,6 +1451,7 @@ anyref pgsql_dictionary::get(const char* name) const
 	objref_t obj;
 	{
 		pgsql_storage* pg = get_storage(this);
+		pgsql_storage::autocommit txn(pg);
 		result rs = pg->statement("hash_get")(hnd->opid)(name).exec();
 		if (rs.empty()) { 
 			return NULL;
@@ -1461,6 +1465,7 @@ anyref pgsql_dictionary::get(const char* name) const
 boolean pgsql_dictionary::del(const char* name) 
 {
 	pgsql_storage* pg = get_storage(this);
+	pgsql_storage::autocommit txn(pg);
 	result rs = pg->statement("hash_delall")(hnd->opid)(name).exec();
 	boolean found = rs.affected_rows() != 0;
 	return found;
@@ -1473,6 +1478,7 @@ boolean pgsql_dictionary::del(const char* name, anyref obj)
 		return false;
 	}
 	pgsql_storage* pg = get_storage(this);
+	pgsql_storage::autocommit txn(pg);
 	result rs = pg->statement("hash_del")(hnd->opid)(name)(obj_hnd->opid).exec();
 	bool found = rs.affected_rows() != 0;
 	return found;
@@ -1487,12 +1493,14 @@ anyref pgsql_dictionary::apply(hash_item::item_function) const
 void pgsql_dictionary::reset()
 {
 	pgsql_storage* pg = get_storage(this);
+	pgsql_storage::autocommit txn(pg);
 	pg->statement("hash_drop")(hnd->opid).exec();
 }
 
 size_t pgsql_dictionary::get_number_of_elements() const
 {
 	pgsql_storage* pg = get_storage(this);
+	pgsql_storage::autocommit txn(pg);
 	result rs = pg->statement("hash_size")(hnd->opid).exec();
 	assert(rs.size() == 1);
 	int64_t n_elems = rs[0][0].as(int64_t());
