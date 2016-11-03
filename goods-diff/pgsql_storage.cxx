@@ -185,7 +185,7 @@ static void get_table_columns(std::map<std::string, field_descriptor*>& columns,
 			get_table_columns(columns, field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, 
 							  field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else if (columns.find(prefix + field->name) == columns.end()) { 
-			columns.put(prefix + field->name, field);
+			columns[prefix + field->name] = field;
 		}
   	  NextField:
         field = (field_descriptor*)field->next;
@@ -269,7 +269,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				size_t nAttrs = rs.size();
 				if (nAttrs != 0) { // table is already present in database
 					char sep = ' ';
-					std::map<std::string, fstd::string> oldColumns;
+					std::map<std::string, std::string> oldColumns;
 					for (size_t i = 0; i < nAttrs; i++) { 
 						oldColumns[rs[i][0].as(std::string())] = rs[i][0].as(std::string());
 					}
@@ -278,17 +278,17 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					get_table_columns(newColumns, "", cls->fields, get_inheritance_depth(cls));
 				
 					sql << "ater table \"" << class_name  << "\"";
-					for (auto newColumn = newColumns.begin(); it != newColumns.end(); it++) {
-						auto oldColumn = oldColumns.find(newColumns->first);
+					for (auto newColumn = newColumns.begin(); newColumn != newColumns.end(); newColumn++) {
+						auto oldColumn = oldColumns.find(newColumn->first);
 						auto fd = newColumn->second;
-						string newType = map_type(fd);
+						std::string newType = map_type(fd);
 						if (oldColumn == oldColumns.end()) {
 							sql << sep << "add column \"" << newColumn->first << "\" " << newType;
 							sep = ',';
 						} else { 
-							string oldType = oldColumns->second;
+							std::string oldType = oldColumn->second;
 							if (newType != oldType) { 
-								sql << sep << "alter column \"" <<  ewColumns->first << "\" set data type " << newType;
+								sql << sep << "alter column \"" <<  newColumn->first << "\" set data type " << newType;
 								sep = ',';								
 							}
 						}
