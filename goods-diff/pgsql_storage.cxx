@@ -170,6 +170,29 @@ static void define_table_columns(std::set<std::string>& columns, std::string con
     } while (field != first);
 }
 
+static void get_table_columns(std::map<std::string, field_descriptor*>& columns, std::string const& prefix, field_descriptor* first, int inheritance_depth)
+{
+	if (first == NULL) {
+		return;
+	}
+
+	field_descriptor* field = first;
+	if (inheritance_depth < 0) { 
+		goto NextField;
+	}
+    do { 
+		if (field->loc.type == fld_structure) { 
+			get_table_columns(columns, field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, 
+							  field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
+		} else if (columns.find(prefix + field->name) == columns.end()) { 
+			columns.put(prefix + field->name, field);
+		}
+  	  NextField:
+        field = (field_descriptor*)field->next;
+    } while (field != first);
+}
+
+
 inline bool is_btree(std::string name)
 {
 	return name == "B_tree" || name == "SB_tree";
@@ -223,6 +246,10 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("delete from version_history");
 	}
 
+	con->prepare("get_attrs", "select attname,typname from pg_class,pg_attribute,pg_type where pg_class.relname=? and pg_class.oid=pg_attribute.attrelid and pg_attribute.atttypid=pg_type.oid and attnum>0 order by attnum");
+
+
+
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
 			if (cls == &object::self_class || cls->mop->is_transient() || (cls->class_attr & class_descriptor::cls_non_relational) || (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) { 
@@ -237,30 +264,66 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 			if (table_name == class_name) {
 				std::stringstream sql;
-				sql << "create table if not exists \"" << class_name << "\"(opid objref primary key";
-				std::set<std::string> columns;
-				define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
 
-				// for all derived classes
-				if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
-					for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
-						for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-							if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
-								&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
-							{
-								for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
-									if (base == cls) { 
-										define_table_columns(columns, "", derived->fields, sql, -1);
-										break;
+				result rs = txn.prepared("get_attrs")(class_name).exec();
+				size_t nAttrs = rs.size();
+				if (nAttrs != 0) { // table is already present in database
+					char sep = ' ';
+					std::map<std::string, fstd::string> oldColumns;
+					for (size_t i = 0; i < nAttrs; i++) { 
+						oldColumns[rs[i][0].as(std::string())] = rs[i][0].as(std::string());
+					}
+					
+					std::map<std::string, field_descriptor*> newColumns;
+					get_table_columns(newColumns, "", cls->fields, get_inheritance_depth(cls));
+				
+					sql << "ater table \"" << class_name  << "\"";
+					for (auto newColumn = newColumns.begin(); it != newColumns.end(); it++) {
+						auto oldColumn = oldColumns.find(newColumns->first);
+						auto fd = newColumn->second;
+						string newType = map_type(fd);
+						if (oldColumn == oldColumns.end()) {
+							sql << sep << "add column \"" << newColumn->first << "\" " << newType;
+							sep = ',';
+						} else { 
+							string oldType = oldColumns->second;
+							if (newType != oldType) { 
+								sql << sep << "alter column \"" <<  ewColumns->first << "\" set data type " << newType;
+								sep = ',';								
+							}
+						}
+					}
+					if (sep != ' ') { // something has to be altered						
+						txn.exec(sql.str());
+					}
+				} else { 
+					// no such table
+
+					sql << "create table \"" << class_name << "\"(opid objref primary key";
+					std::set<std::string> columns;
+					define_table_columns(columns, "", cls->fields, sql, get_inheritance_depth(cls));
+					
+					// for all derived classes
+					if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
+						for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
+							for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
+								if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
+									&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
+								{
+									for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
+										if (base == cls) { 
+											define_table_columns(columns, "", derived->fields, sql, -1);
+											break;
+										}
 									}
 								}
 							}
 						}
-					}
-				}													
-				sql << ")";
-				//printf("%s\n", sql.str().c_str());
-				txn.exec(sql.str());			   
+					}													
+					sql << ")";
+					//printf("%s\n", sql.str().c_str());
+					txn.exec(sql.str());			   
+				}
 			}
 		}
 	}
