@@ -246,7 +246,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("delete from version_history");
 	}
 
-	con->prepare("get_attrs", "select attname,typname from pg_class,pg_attribute,pg_type where pg_class.relname=? and pg_class.oid=pg_attribute.attrelid and pg_attribute.atttypid=pg_type.oid and attnum>0 order by attnum");
+	con->prepare("get_attrs", "select attname,typname from pg_class,pg_attribute,pg_type where pg_class.relname=$1 and pg_class.oid=pg_attribute.attrelid and pg_attribute.atttypid=pg_type.oid and attnum>0 order by attnum");
 
 
 
@@ -273,11 +273,11 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					for (size_t i = 0; i < nAttrs; i++) { 
 						oldColumns[rs[i][0].as(std::string())] = rs[i][1].as(std::string());
 					}
-					
+					printf("%ld attributes in table %s\n", nAttrs, class_name.c_str());
 					std::map<std::string, field_descriptor*> newColumns;
 					get_table_columns(newColumns, "", cls->fields, get_inheritance_depth(cls));
 				
-					sql << "ater table \"" << class_name  << "\"";
+					sql << "alter table \"" << class_name  << "\"";
 					for (auto newColumn = newColumns.begin(); newColumn != newColumns.end(); newColumn++) {
 						auto oldColumn = oldColumns.find(newColumn->first);
 						auto fd = newColumn->second;
