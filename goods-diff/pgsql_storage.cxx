@@ -271,7 +271,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					char sep = ' ';
 					std::map<std::string, std::string> oldColumns;
 					for (size_t i = 0; i < nAttrs; i++) { 
-						oldColumns[rs[i][0].as(std::string())] = rs[i][0].as(std::string());
+						oldColumns[rs[i][0].as(std::string())] = rs[i][1].as(std::string());
 					}
 					
 					std::map<std::string, field_descriptor*> newColumns;
