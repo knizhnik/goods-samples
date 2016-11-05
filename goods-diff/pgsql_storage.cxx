@@ -252,7 +252,11 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
-			if (cls == &object::self_class || cls->mop->is_transient() || (cls->class_attr & class_descriptor::cls_non_relational) || (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) { 
+			if (cls == &object::self_class || cls->mop->is_transient() 
+				|| strcmp(cls->name, "set_member") == 0
+				|| (cls->class_attr & class_descriptor::cls_non_relational) 
+				|| (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) 
+			{ 
 				continue;
 			}
 			class_descriptor* root_class = get_root_class(cls);
@@ -294,6 +298,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 						}
 					}
 					if (sep != ' ') { // something has to be altered						
+						printf("Schema evolution: %s\n", sql.str().c_str());
 						txn.exec(sql.str());
 					}
 				} else { 
