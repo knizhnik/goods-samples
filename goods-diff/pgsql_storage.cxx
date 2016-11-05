@@ -320,7 +320,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create index if not exists set_member_prev on set_member(prev)");
 	txn.exec("create index if not exists version_history_pk on version_history(modtime)");
 
-	txn.exec("create sequence if not exists oid_sequence");
+	txn.exec("create sequence if not exists oid_sequence minvalue 65537");
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
 	txn.exec("create sequence if not exists client_sequence");
 		
