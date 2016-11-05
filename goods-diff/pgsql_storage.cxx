@@ -336,7 +336,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
 			if (cls == &object::self_class || cls->mop->is_transient() 
-				|| strcmp(cls->name, "set_member") == 0
 				|| (cls->class_attr & class_descriptor::cls_non_relational) 
 				|| (cls->constructor == NULL && (cls->class_attr & class_descriptor::cls_hierarchy_super_root))) 
 			{ 
@@ -345,8 +344,11 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 			class_descriptor* root_class = get_root_class(cls);
 			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
-			if (root_class == &set_member::self_class && (cls->class_attr & class_descriptor::cls_binary)) { 
-				((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
+			if (root_class == &set_member::self_class) { 
+				if (cls->class_attr & class_descriptor::cls_binary) { 
+					((field_descriptor*)root_class->fields->prev)->flags |= fld_binary; // mark set_member::key as binary
+				}
+				continue;
 			}
 
 			if (table_name == class_name) {
@@ -360,7 +362,6 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					for (size_t i = 0; i < nAttrs; i++) { 
 						oldColumns[rs[i][0].as(std::string())] = rs[i][1].as(std::string());
 					}
-					printf("%ld attributes in table %s\n", nAttrs, class_name.c_str());
 					std::map<std::string, field_descriptor*> newColumns;
 					get_table_columns(newColumns, "", cls->fields, get_inheritance_depth(cls));
 				
