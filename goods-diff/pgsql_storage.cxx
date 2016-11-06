@@ -74,89 +74,6 @@ static char const* map_type(field_descriptor* field)
 			  case 1:
 				return "bytea";
 			  case 2:
-				return "smallint[]";
-			  case 4:
-				return "integer[]";
-			  case 8:
-				return "bigint[]";
-			  default:
-				assert(false);
-			}
-			break;
-		  case fld_signed_integer:
-			switch (field->loc.size) {
-			  case 1:
-				return "text";
-			  case 2:
-				return "smallint[]";
-			  case 4:
-				return "integer[]";
-			  case 8:
-				return "bigint[]";
-			  default:
-				assert(false);
-			}
-			break;
-		  case fld_real:
-			switch (field->loc.size) { 
-			  case 4:
-				return "real[]";
-			  case 8:
-				return "double precision[]";
-			  default:
-				assert(false);
-			}
-			break;
-		  case fld_reference:
-			return "objrefs";
-		  default:
-			assert(false);
-		}
-	}
-	switch (field->loc.type) { 
-	case fld_unsigned_integer:
-	case fld_signed_integer:
-		switch (field->loc.size) { 
-		case 1:
-		case 2:
-			return "smallint";
-		case 4:
-			return "integer";
-		case 8:
-			return "bigint";
-		default:
-			assert(false);
-		}
-	case fld_string:
-		return "text";
-	case fld_reference:
-		return "objref";
-	case fld_raw_binary:
-		return "bytea";
-	case fld_real:
-		switch (field->loc.size) { 
-		case 4:
-			return "real";
-		case 8:
-			return "double precision";
-		default:
-			assert(false);
-		}
-	default:
-		assert(false);
-	}
-	return "";
-}
-
-static char const* internal_type(field_descriptor* field)
-{
-	if (field->loc.n_items != 1) { // right now we support only char[] for varying part
-		switch (field->loc.type) { 
-		  case fld_unsigned_integer:
-			switch (field->loc.size) {
-			  case 1:
-				return "bytea";
-			  case 2:
 				return "_int2";
 			  case 4:
 				return "_int4";
@@ -369,7 +286,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					for (auto newColumn = newColumns.begin(); newColumn != newColumns.end(); newColumn++) {
 						auto oldColumn = oldColumns.find(newColumn->first);
 						auto fd = newColumn->second;
-						std::string newType = internal_type(fd);
+						std::string newType = map_type(fd);
 						if (oldColumn == oldColumns.end()) {
 							sql << sep << "add column \"" << newColumn->first << "\" " << newType;
 							sep = ',';
@@ -377,7 +294,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 							std::string oldType = oldColumn->second;
 							if (newType != oldType) { 
 								printf("Old type '%s' not equal to new type '%s'\n", oldType.c_str(), newType.c_str());
-								sql << sep << "alter column \"" <<  newColumn->first << "\" set data type " << map_type(fd);
+								sql << sep << "alter column \"" <<  newColumn->first << "\" set data type " << newType;
 								sep = ',';								
 							}
 						}
