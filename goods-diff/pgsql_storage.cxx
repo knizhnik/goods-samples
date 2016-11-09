@@ -74,7 +74,7 @@ static char const* map_type(field_descriptor* field)
 			  case 1:
 				return "bytea";
 			  case 2:
-				return "_int2";
+				return "text"; // "_int2";
 			  case 4:
 				return "_int4";
 			  case 8:
