@@ -211,6 +211,9 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	if (password != NULL && *password) { 
 		connStr << " password=" << password;
 	}
+	if (!appName.empty()) { 
+		connStr << " application_name=" << appName;
+	}
 	connString = connStr.str();
 
 	connection* con = open_connection();

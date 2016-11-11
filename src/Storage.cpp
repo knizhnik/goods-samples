@@ -28,7 +28,7 @@ std::string	CDataBase::m_EncriptedPassword;
 #if PGSQL_ORM
 dbs_storage* CDataBase::create_dbs_storage(stid_t sid) const 
 {
-	return NEW pgsql_storage(sid);
+	return NEW pgsql_storage(sid, m_AppID);
 }
 #else
 void CDataBase::disconnected(stid_t sid)

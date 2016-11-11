@@ -67,7 +67,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     obj_storage* os;
     int64_t clientID;
     std::string connString;
-
+    std::string appName;
     mutex cs;
 
     work* start_transaction(bool& toplevel);
@@ -109,7 +109,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     };
 	
   public:
-    pgsql_storage(stid_t sid) : dbs_storage(sid, NULL), opid_buf_pos(OPID_BUF_SIZE), lastSyncTime(0), sessions(NULL), max_preloaded_set_members(10) {}
+    pgsql_storage(stid_t sid, char const* appID = "") : dbs_storage(sid, NULL), opid_buf_pos(OPID_BUF_SIZE), lastSyncTime(0), sessions(NULL), max_preloaded_set_members(10), appName(appID) {}
 	
     virtual objref_t allocate(cpid_t cpid, size_t size, int flags, objref_t clusterWith);
     virtual void    bulk_allocate(size_t sizeBuf[], cpid_t cpidBuf[], size_t nAllocObjects, 
