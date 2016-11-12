@@ -458,6 +458,8 @@ connection* pgsql_storage::open_connection()
 	con->prepare("write_file", "select writeEfile($1, $2)");
 	con->prepare("read_file", "select readEfile($1)");
 
+    con->prepare("get_time", "SELECT extract(epoch from now())");
+	con->prepare("get_clients", "select count(*),count(distinct client_addr::text||client_port) from pg_stat_activity where application_name like $1");
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
@@ -1579,3 +1581,26 @@ size_t pgsql_dictionary::get_number_of_elements() const
 	int64_t n_elems = rs[0][0].as(int64_t());
 	return n_elems;
 }
+
+time_t pgsql_storage::GetTime() 
+{ 
+    autocommit txn(this); 
+    result rs = txn->prepared("get_time")().exec();
+    assert(rs.size() == 1);
+    return rs[0][0].as(time_t());
+}
+
+nat4 pgsql_storage::GetCurrentUsersCount(char const* app_id, nat4 &nInstances)
+{
+    autocommit txn(this); 
+    result rs = txn->prepared("get_clients")(app_id).exec();
+    assert(rs.size() == 1);
+    nInstances = rs[0][1].as(nat4());
+    return rs[0][0].as(nat4());
+}
+
+std::string pgsql_storage::GetCurrentConnectionString()
+{
+    return connString;
+}
+
