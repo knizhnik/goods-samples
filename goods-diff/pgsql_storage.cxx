@@ -1590,10 +1590,12 @@ time_t pgsql_storage::GetTime()
     return rs[0][0].as(time_t());
 }
 
-nat4 pgsql_storage::GetCurrentUsersCount(char const* app_id, nat4 &nInstances)
+nat4 pgsql_storage::GetCurrentUsersCount(char const* appId, nat4 &nInstances)
 {
     autocommit txn(this); 
-    result rs = txn->prepared("get_clients")(app_id).exec();
+	char appIdPattern[8];
+	strcat(strcpy(appIdPattern, appId), "%");
+    result rs = txn->prepared("get_clients")(appIdPattern).exec();
     assert(rs.size() == 1);
     nInstances = rs[0][1].as(nat4());
     return rs[0][0].as(nat4());
