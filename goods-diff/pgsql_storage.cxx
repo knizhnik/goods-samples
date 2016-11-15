@@ -412,6 +412,22 @@ void pgsql_storage::unlock(objref_t opid, lck_t lck)
 {
 }
 
+boolean pgsql_storage::session_lock(nat8 id, lck_t lck, int attr)
+{
+	autocommit txn(this); 
+	char const* lock_kind = (lck == lck_shared) 
+		? (attr & lckattr_nowait) ? "nowait_shared_lock" : "shared_lock"
+		: (attr & lckattr_nowait) ? "nowait_exclusive_lock" : "exclusive_lock";
+	result rs = txn->prepared(lock_kind)(id).exec();
+	return (attr & lckattr_nowait) ? rs[0][0].as(bool()) : true;
+}
+
+void pgsql_storage::session_unlock(nat8 id)
+{
+	autocommit txn(this); 
+	txn->prepared("unlock")(id).exec();
+}
+
 void pgsql_storage::commit_transaction()
 {
     transaction_manager* mng = transaction_manager::get();
@@ -460,6 +476,12 @@ connection* pgsql_storage::open_connection()
 
     con->prepare("get_time", "SELECT extract(epoch from now())");
 	con->prepare("get_clients", "select count(distinct split_part(application_name, ':', 2)||client_addr), count(distinct application_name||client_addr) from pg_stat_activity where application_name like $1");
+
+	con->prepare("nowait_shared_lock", "select pg_try_advisory_lock_shared($1)");
+	con->prepare("shared_lock", "select pg_advisory_lock_shared($1)");
+	con->prepare("nowait_exclusive_lock", "select pg_try_advisory_lock($1)");
+	con->prepare("exclusive_lock", "select pg_advisory_lock($1)");
+	con->prepare("unlock", "select pg_advisory_unlock($1)");
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {

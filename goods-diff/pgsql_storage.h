@@ -213,6 +213,9 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     std::string GetCurrentConnectionString();
     time_t      GetTime();
 
+    boolean    session_lock(nat8 id, lck_t lck = lck_exclusive, int attr = lckattr_no);
+    void       session_unlock(nat8 id);
+
     virtual nat8    get_used_size();
 
     virtual boolean start_gc();
