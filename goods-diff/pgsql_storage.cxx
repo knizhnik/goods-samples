@@ -459,7 +459,7 @@ connection* pgsql_storage::open_connection()
 	con->prepare("read_file", "select readEfile($1)");
 
     con->prepare("get_time", "SELECT extract(epoch from now())");
-	con->prepare("get_clients", "select count(distinct application_name||client_addr), count(*) from pg_stat_activity where application_name like $1");
+	con->prepare("get_clients", "select count(distinct split_part(application_name, ':', 2)||client_addr), count(distinct application_name||client_addr) from pg_stat_activity where application_name like $1");
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {
