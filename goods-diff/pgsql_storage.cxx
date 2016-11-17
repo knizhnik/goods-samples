@@ -1607,7 +1607,7 @@ size_t pgsql_dictionary::get_number_of_elements() const
 time_t pgsql_storage::GetTime() 
 { 
     autocommit txn(this); 
-    result rs = txn->prepared("get_time")().exec();
+    result rs = txn->prepared("get_time").exec();
     assert(rs.size() == 1);
     return rs[0][0].as(time_t());
 }
