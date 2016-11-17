@@ -1609,7 +1609,7 @@ time_t pgsql_storage::GetTime()
     autocommit txn(this); 
     result rs = txn->prepared("get_time").exec();
     assert(rs.size() == 1);
-    return rs[0][0].as(time_t());
+    return (time_t)rs[0][0].as(double());
 }
 
 nat4 pgsql_storage::GetCurrentUsersCount(char const* appId, nat4 &nInstances)
