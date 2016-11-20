@@ -422,11 +422,13 @@ boolean pgsql_storage::session_lock(nat8 id, lck_t lck, int attr)
 	return (attr & lckattr_nowait) ? rs[0][0].as(bool()) : true;
 }
 
-void pgsql_storage::session_unlock(nat8 id)
+boolean pgsql_storage::session_unlock(nat8 id, lck_t lck) 
 {
 	autocommit txn(this); 
-	txn->prepared("unlock")(id).exec();
-}
+	char const* lock_kind = (lck == lck_shared) ? "shared_unlock" : "exclusive_unlock";
+	result rs = txn->prepared(lock_kind)(id).exec();
+	return rs[0][0].as(bool());
+}	
 
 void pgsql_storage::commit_transaction()
 {
@@ -481,7 +483,8 @@ connection* pgsql_storage::open_connection()
 	con->prepare("shared_lock", "select pg_advisory_lock_shared($1)");
 	con->prepare("nowait_exclusive_lock", "select pg_try_advisory_lock($1)");
 	con->prepare("exclusive_lock", "select pg_advisory_lock($1)");
-	con->prepare("unlock", "select pg_advisory_unlock($1)");
+	con->prepare("exclusive_unlock", "select pg_advisory_unlock($1)");
+	con->prepare("shared_unlock", "select pg_advisory_unlock_shared($1)");
 
 	for (size_t i = 0; i < DESCRIPTOR_HASH_TABLE_SIZE; i++) { 
 		for (class_descriptor* cls = class_descriptor::hash_table[i]; cls != NULL; cls = cls->next) {

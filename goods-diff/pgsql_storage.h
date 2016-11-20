@@ -214,7 +214,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     time_t      GetTime();
 
     boolean    session_lock(nat8 id, lck_t lck = lck_exclusive, int attr = lckattr_no);
-    void       session_unlock(nat8 id);
+    boolean    session_unlock(nat8 id, lck_t lck = lck_exclusive);
 
     virtual nat8    get_used_size();
 
