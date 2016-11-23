@@ -62,8 +62,19 @@ static std::string get_host(std::string const& address)
 
 static std::string get_port(std::string const& address)
 {
-	return address.substr(address.find(':')+1);
+	size_t sep = address.find(':');
+	return address.substr(sep+1, address.find(':',sep+1));
 }
+
+static std::string get_database(std::string const& address)
+{
+	size_t sep1 = address.find(':');	
+	size_t sep2 =  address.find(':',sep1+1);
+	return (sep2 != std::string::npos)
+		? address.substr(sep2+1) : std::string();
+}
+
+
 
 static char const* map_type(field_descriptor* field)
 {
@@ -205,6 +216,10 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	std::stringstream connStr;
 	connStr << "host=" << get_host(connection_address)
 			<< " port=" << get_port(connection_address);
+	std::string dbname = get_database(connection_address);
+	if (!dbname.empty()) {
+		connStr << " dbname=" << dbname;
+	}
 	if (login != NULL && *login) { 
 		connStr << " user=" << login;
 	}
