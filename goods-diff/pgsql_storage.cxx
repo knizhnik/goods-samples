@@ -62,8 +62,10 @@ static std::string get_host(std::string const& address)
 
 static std::string get_port(std::string const& address)
 {
-	size_t sep = address.find(':');
-	return address.substr(sep+1, address.find(':',sep+1));
+	size_t sep1 = address.find(':');
+	size_t sep2 = address.find(':', sep1 + 1);
+	return (sep2 != std::string::npos)
+		? address.substr(sep1 + 1, sep2 - sep1 - 1) : address.substr(sep1 + 1);
 }
 
 static std::string get_database(std::string const& address)
