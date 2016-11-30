@@ -209,6 +209,8 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual boolean open(const char* server_connection_name, char const* login, char const* password, obj_storage* os);
     virtual void    close();
 
+    bool convert_goods_database(char const* databasePath, char const* databaseName);
+
     nat4        GetCurrentUsersCount(char const* app_id, nat4 &nInstances);
     std::string GetCurrentConnectionString();
     time_t      GetTime();

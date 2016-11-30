@@ -1,6 +1,9 @@
 #include <set>
 #include "pgsql_storage.h"
 
+#ifndef GOODS_DATABASE_CONVERTER
+#define GOODS_DATABASE_CONVERTER 1
+#endif
 
 #define MAX_KEY_SIZE 4096
 
@@ -1646,3 +1649,182 @@ std::string pgsql_storage::GetCurrentConnectionString()
     return connString;
 }
 
+
+#if GOODS_DATABASE_CONVERTER
+
+#include "mmapfile.h"
+#include "osfile.h"
+#include "memmgr.h"
+#include "fstream"
+
+inline char* unpack6(nat2& sid, opid_t& opid, char* src) { 
+    return unpack4((char*)&opid, unpack2((char*)&sid, src));
+}
+
+
+bool pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
+{
+	pgsql_storage::autocommit txn(this);
+
+	std::string idx_path = std::string(databasePath) + "/" + databaseName + ".idx";
+	std::string odb_path = std::string(databasePath) + "/" + databaseName + ".odb";
+	std::string blob_path = std::string(databasePath) + "/blobs/";
+
+	dnm_buffer buf;
+
+    mmap_file idx_file(idx_path.c_str(), 4*1024*1024);
+    os_file   odb_file(odb_path.c_str());
+	msg_buf   msgbuf;
+	file::iop_status status = idx_file.open(file::fa_readwrite,
+											file::fo_random|file::fo_create);
+	if (status != file::ok) {
+		idx_file.get_error_text(status, msgbuf, sizeof msgbuf);
+		fprintf(stderr, "Failed to open index file %s: %s\n", idx_path.c_str(), msgbuf);
+		return false;
+	}
+	dbs_handle* index_beg = (dbs_handle*)idx_file.get_mmap_addr();
+		
+	status = odb_file.open(file::fa_readwrite,
+						   file::fo_largefile|file::fo_random|file::fo_directio);
+	if (status != file::ok) {
+		odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
+		fprintf(stderr, "Failed to open database file %s: %s\n", odb_path.c_str(), msgbuf);
+		return false;
+	}
+
+    dnm_queue<opid_t> queue;
+    dnm_array<nat4>   bitmap;
+	dnm_array<nat8>   objrefs;
+	dnm_array<class_descriptor*> classes;
+	
+	queue.put(ROOT_OPID);
+	bitmap[ROOT_OPID >> 5] |= 1 << (ROOT_OPID & 31);
+
+    do { 
+        opid_t opid = queue.get();
+		dbs_handle* hnd = &index_beg[opid];
+		cpid_t cpid = hnd->get_cpid();
+		class_descriptor* desc = classes[cpid];
+		if (desc == NULL) {
+			dbs_handle* cls_hnd = &index_beg[cpid];
+			buf.put(cls_hnd->get_size());
+			status = odb_file.read(cls_hnd->get_pos(), &buf, cls_hnd->get_size());
+			if (status != file::ok) {
+				odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
+				fprintf(stderr, "Failed to read class descriptor %d: %s\n", cpid, msgbuf);
+				return false;
+			}
+			char* class_name = ((dbs_class_descriptor*)&buf)->name();
+			desc = class_descriptor::find(class_name);
+			if (desc == NULL) { 
+				fprintf(stderr, "Failed to locate class %s\n", class_name);
+				return false;
+			}
+			if (opid == ROOT_OPID) { 
+				txn->prepared("add_root")(hnd->get_cpid()).exec(); // store information about root 
+			}
+			classes[cpid] = desc;
+
+			assert(desc != &hash_item::self_class); // should not be accessed because we traverse hash_table in special way
+
+			if (desc == &hash_table::self_class || desc == &B_tree::self_class || desc == &SB_tree16::self_class) { 
+				class_descriptor* alter_desc = (desc == &hash_table::self_class) ? &pgsql_dictionary::self_class : &pgsql_index::self_class;
+				std::string dbs_desc((char*)alter_desc->dbs_desc, alter_desc->dbs_desc->get_size());
+				txn->prepared("put_class")(cpid)(alter_desc->name)(txn->esc_raw(dbs_desc)).exec();						
+			} else {
+				std::string dbs_desc(&buf, buf.size());
+				txn->prepared("put_class")(cpid)(class_name)(txn->esc_raw(dbs_desc)).exec();	
+			}
+		}
+		class_descriptor* new_desc = desc;
+		if (desc == &hash_table::self_class || desc == &B_tree::self_class || desc == &SB_tree16::self_class) { 
+			new_desc = (desc == &hash_table::self_class) ? &pgsql_dictionary::self_class : &pgsql_index::self_class;
+		}
+		size_t size = hnd->get_size();
+		buf.put(size);
+		status = odb_file.read(hnd->get_pos(), &buf, size);
+		if (status != file::ok) {
+			odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
+			fprintf(stderr, "Failed to read object %x: %s\n", opid, msgbuf);
+			return false;
+		}
+		size_t n_refs = desc->n_varying_references 
+            ? desc->n_fixed_references + unsigned((size - desc->packed_fixed_size) / desc->packed_varying_size * desc->n_varying_references)
+            : desc->n_fixed_references; 
+
+		char* src_refs = &buf;			   
+		char* src_bins = src_refs + n_refs*6;
+		invocation stmt = txn->prepared(std::string(new_desc->name) + "_insert") ;
+		
+		objref_t ref = MAKE_OBJREF(cpid, opid);
+		stmt(ref);
+
+		if (new_desc == &pgsql_dictionary::self_class) { 
+			// store hash table
+			for (size_t i = 0; i < n_refs; i++) { 
+				stid_t sid;
+				opid_t obj, item;
+				src_refs = unpack6(sid, item, src_refs);
+				do { 
+					hnd = &index_beg[item];
+					size = hnd->get_size();
+					buf.put(size);
+					status = odb_file.read(hnd->get_pos(), &buf, size);
+					if (status != file::ok) {
+						odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
+						fprintf(stderr, "Failed to read hash_item %x: %s\n", item, msgbuf);
+						return false;
+					}
+					char* body = &buf;
+					body = unpack6(sid, item, body);
+					body = unpack6(sid, obj, body);
+					txn->prepared("hash_put")(ref)(body)(MAKE_OBJREF(index_beg[obj].get_cpid(), obj)).exec();
+				} while (item != 0);
+			}
+		} else { 
+			for (size_t i = 0; i < n_refs; i++) { 
+				stid_t sid;
+				opid_t obj;
+				src_refs = unpack6(sid, obj, src_refs);
+				objrefs[i] = MAKE_OBJREF(index_beg[obj].get_cpid(), obj);
+				pack8(objrefs[i]);
+				if (!(bitmap[obj >> 5] & (1 << (obj & 31)))) {
+					bitmap[obj >> 5] |= 1 << (obj & 31);
+					queue.put(obj);
+				}
+			}
+			assert(src_refs == src_bins);
+			if (desc == &ExternalBlob::self_class) { 
+				char opid_hex[16];
+				sprintf(opid_hex, "%x", opid);
+				std::ifstream ifs(blob_path + opid_hex + ".blob");
+				std::string blob((std::istreambuf_iterator<char>(ifs)),
+								 (std::istreambuf_iterator<char>()));
+				txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
+			} else if (desc->n_varying_references != 0) { 
+				store_array_of_references(stmt, (char*)&objrefs, src_bins);
+			} else { 
+				bool is_text = is_text_set_member(desc);
+				if (!is_text && desc->base_class == &set_member::self_class) {
+					if (&buf + size == src_bins + 8) {
+						pack8(*(nat8*)src_bins);
+					} else { 
+						assert(&buf + size == src_bins + 4);
+						pack4(*(nat4*)src_bins);
+					}						
+				}
+				src_refs = (char*)&objrefs;
+				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text);
+				assert(left == 0);
+			}
+		}
+		result r = stmt.exec();
+		assert(r.affected_rows() == 1);
+    } while (!queue.is_empty());
+
+	idx_file.close();
+	odb_file.close();
+	return true;
+}
+	
+#endif
