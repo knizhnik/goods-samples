@@ -20,6 +20,12 @@ INC = stdafx.h inc/ClientStorage.h inc/DatabaseRoot.h inc/DBCmdEx.h inc/Dimensio
 
 all: GoodsSample
 
+guess: guess.o ../goods/lib/libclient.a pgsql_storage.o
+	$(LD) $(LDFLAGS) -o guess guess.o pgsql_storage.o ../goods/lib/libclient.a -lpqxx -lz
+
+guess.o: guess.cpp
+	$(CC) $(CCFLAGS) guess.cpp 
+
 GoodsSample: $(OBJS) ../goods/lib/libclient.a
 	$(LD) $(LDFLAGS) -o GoodsSample $(OBJS) ../goods/lib/libclient.a -lpqxx -lz
 

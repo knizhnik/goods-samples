@@ -470,6 +470,8 @@ connection* pgsql_storage::open_connection()
 	connection* con = new connection(connString); // database name is expected to be equal to user name
 	con->prepare("new_oid", "select nextval('oid_sequence') from generate_series(1,$1)"); 
 	con->prepare("new_cid", "select nextval('cid_sequence')"); 
+	con->prepare("set_oid", "select setval('oid_sequence', $1)"); 
+	con->prepare("set_cid", "select setval('cid_sequence', $1)"); 
 	con->prepare("get_root", "select cpid from root_class"); 
 	con->prepare("add_root", "insert into root_class values ($1)"); 
 	con->prepare("set_root", "update root_class set cpid=$1"); 
@@ -1663,8 +1665,12 @@ inline char* unpack6(nat2& sid, opid_t& opid, char* src) {
     return unpack4((char*)&opid, unpack2((char*)&sid, src));
 }
 
+inline objref_t makeref(cpid_t cpid, opid_t opid) 
+{
+	return opid == ROOT_OPID ? ROOT_OPID : MAKE_OBJREF(cpid, opid);
+}
 
-bool pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
+boolean pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
 {
 	pgsql_storage::autocommit txn(this);
 
@@ -1697,8 +1703,11 @@ bool pgsql_storage::convert_goods_database(char const* databasePath, char const*
     dnm_queue<opid_t> queue;
     dnm_array<nat4>   bitmap;
 	dnm_array<nat8>   objrefs;
-	dnm_array<class_descriptor*> classes;
-	
+	dnm_array<dbs_class_descriptor*> goods_classes;
+	dnm_array<class_descriptor*> orm_classes;
+	opid_t max_opid = ROOT_OPID;
+	cpid_t max_cpid = RAW_CPID;
+
 	queue.put(ROOT_OPID);
 	bitmap[ROOT_OPID >> 5] |= 1 << (ROOT_OPID & 31);
 
@@ -1706,41 +1715,44 @@ bool pgsql_storage::convert_goods_database(char const* databasePath, char const*
         opid_t opid = queue.get();
 		dbs_handle* hnd = &index_beg[opid];
 		cpid_t cpid = hnd->get_cpid();
-		class_descriptor* desc = classes[cpid];
+		dbs_class_descriptor* dbs_desc = goods_classes[cpid];
+		class_descriptor* desc = orm_classes[cpid];
 		if (desc == NULL) {
 			dbs_handle* cls_hnd = &index_beg[cpid];
-			buf.put(cls_hnd->get_size());
-			status = odb_file.read(cls_hnd->get_pos(), &buf, cls_hnd->get_size());
+			dbs_desc = (dbs_class_descriptor*)new char[cls_hnd->get_size()];
+			status = odb_file.read(cls_hnd->get_pos(), dbs_desc, cls_hnd->get_size());
 			if (status != file::ok) {
 				odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
 				fprintf(stderr, "Failed to read class descriptor %d: %s\n", cpid, msgbuf);
 				return false;
 			}
-			char* class_name = ((dbs_class_descriptor*)&buf)->name();
+			dbs_desc->unpack();
+			char* class_name = dbs_desc->name();
 			desc = class_descriptor::find(class_name);
 			if (desc == NULL) { 
 				fprintf(stderr, "Failed to locate class %s\n", class_name);
 				return false;
 			}
 			if (opid == ROOT_OPID) { 
-				txn->prepared("add_root")(hnd->get_cpid()).exec(); // store information about root 
+				txn->prepared("add_root")(cpid).exec(); // store information about root 
 			}
-			classes[cpid] = desc;
+			goods_classes[cpid] = dbs_desc;
+			orm_classes[cpid] = desc;
 
 			assert(desc != &hash_item::self_class); // should not be accessed because we traverse hash_table in special way
 
-			if (desc == &hash_table::self_class || desc == &B_tree::self_class || desc == &SB_tree16::self_class) { 
-				class_descriptor* alter_desc = (desc == &hash_table::self_class) ? &pgsql_dictionary::self_class : &pgsql_index::self_class;
-				std::string dbs_desc((char*)alter_desc->dbs_desc, alter_desc->dbs_desc->get_size());
-				txn->prepared("put_class")(cpid)(alter_desc->name)(txn->esc_raw(dbs_desc)).exec();						
-			} else {
-				std::string dbs_desc(&buf, buf.size());
-				txn->prepared("put_class")(cpid)(class_name)(txn->esc_raw(dbs_desc)).exec();	
-			}
+			desc = (desc == &hash_table::self_class)
+				? &pgsql_dictionary::self_class : (desc == &B_tree::self_class || desc == &SB_tree16::self_class) 
+				  ? &pgsql_index::self_class : desc;
+			std::string desc_data((char*)desc->dbs_desc, desc->dbs_desc->get_size());
+			((dbs_class_descriptor*)desc_data.data())->pack();
+			txn->prepared("put_class")(cpid)(desc->name)(txn->esc_raw(desc_data)).exec();						
 		}
-		class_descriptor* new_desc = desc;
-		if (desc == &hash_table::self_class || desc == &B_tree::self_class || desc == &SB_tree16::self_class) { 
-			new_desc = (desc == &hash_table::self_class) ? &pgsql_dictionary::self_class : &pgsql_index::self_class;
+		if (opid > max_opid) { 
+			max_opid = opid;
+		}
+		if (cpid > max_cpid) { 
+			max_cpid = cpid;
 		}
 		size_t size = hnd->get_size();
 		buf.put(size);
@@ -1750,24 +1762,24 @@ bool pgsql_storage::convert_goods_database(char const* databasePath, char const*
 			fprintf(stderr, "Failed to read object %x: %s\n", opid, msgbuf);
 			return false;
 		}
-		size_t n_refs = desc->n_varying_references 
-            ? desc->n_fixed_references + unsigned((size - desc->packed_fixed_size) / desc->packed_varying_size * desc->n_varying_references)
-            : desc->n_fixed_references; 
+		size_t n_refs = dbs_desc->get_number_of_references(size);
 
+		size += 2*n_refs; // ORM refenreces are 8 bytes instead of 6-bytes GOODS referenced
+		
 		char* src_refs = &buf;			   
 		char* src_bins = src_refs + n_refs*6;
-		invocation stmt = txn->prepared(std::string(new_desc->name) + "_insert") ;
+		invocation stmt = txn->prepared(std::string(desc->name) + "_insert") ;
 		
-		objref_t ref = MAKE_OBJREF(cpid, opid);
+		objref_t ref = makeref(cpid, opid);
 		stmt(ref);
 
-		if (new_desc == &pgsql_dictionary::self_class) { 
+		if (desc == &pgsql_dictionary::self_class) { 
 			// store hash table
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
 				opid_t obj, item;
 				src_refs = unpack6(sid, item, src_refs);
-				do { 
+				while (item != 0) {
 					hnd = &index_beg[item];
 					size = hnd->get_size();
 					buf.put(size);
@@ -1780,19 +1792,27 @@ bool pgsql_storage::convert_goods_database(char const* databasePath, char const*
 					char* body = &buf;
 					body = unpack6(sid, item, body);
 					body = unpack6(sid, obj, body);
-					txn->prepared("hash_put")(ref)(body)(MAKE_OBJREF(index_beg[obj].get_cpid(), obj)).exec();
-				} while (item != 0);
+					txn->prepared("hash_put")(ref)(body)(makeref(index_beg[obj].get_cpid(), obj)).exec();
+					if (obj != 0 && !(bitmap[obj >> 5] & (1 << (obj & 31)))) {
+						bitmap[obj >> 5] |= 1 << (obj & 31);
+						queue.put(obj);
+					}
+				}
 			}
 		} else { 
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
 				opid_t obj;
 				src_refs = unpack6(sid, obj, src_refs);
-				objrefs[i] = MAKE_OBJREF(index_beg[obj].get_cpid(), obj);
-				pack8(objrefs[i]);
-				if (!(bitmap[obj >> 5] & (1 << (obj & 31)))) {
-					bitmap[obj >> 5] |= 1 << (obj & 31);
-					queue.put(obj);
+				if (obj != 0) { 
+					objrefs[i] = makeref(index_beg[obj].get_cpid(), obj);
+					pack8(objrefs[i]);
+					if (!(bitmap[obj >> 5] & (1 << (obj & 31)))) {
+						bitmap[obj >> 5] |= 1 << (obj & 31);
+						queue.put(obj);
+					}
+				} else {
+					objrefs[i] = 0;
 				}
 			}
 			assert(src_refs == src_bins);
@@ -1824,9 +1844,19 @@ bool pgsql_storage::convert_goods_database(char const* databasePath, char const*
 		assert(r.affected_rows() == 1);
     } while (!queue.is_empty());
 
+	txn->prepared("set_oid")(max_opid).exec();
+	txn->prepared("set_cid")(max_cpid).exec();
+	
 	idx_file.close();
 	odb_file.close();
 	return true;
 }
 	
+#else
+
+boolean pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
+{
+	return false;
+}
+
 #endif
