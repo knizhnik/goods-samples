@@ -209,9 +209,9 @@ static void get_table_columns(std::map<std::string, field_descriptor*>& columns,
 }
 
 
-inline bool is_btree(std::string name)
+inline bool is_btree(class_descriptor* desc)
 {
-	return name == "B_tree" || name == "SB_tree";
+	return desc == &B_tree::self_class || desc == &SB_tree16::self_class || desc == &SB_tree32::self_class;
 }
 	
 boolean pgsql_storage::open(char const* connection_address, const char* login, const char* password, obj_storage* storage) 
@@ -337,7 +337,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					if (!(cls->class_attr & class_descriptor::cls_hierarchy_super_root)) {
 						for (size_t j = 0; j < DESCRIPTOR_HASH_TABLE_SIZE; j++) { 
 							for (class_descriptor* derived = class_descriptor::hash_table[j]; derived != NULL; derived = derived->next) {
-								if (derived != cls && !is_btree(derived->name) && !derived->mop->is_transient()
+								if (derived != cls && !is_btree(derived) && !derived->mop->is_transient()
 									&& !(derived->class_attr & (class_descriptor::cls_hierarchy_super_root | class_descriptor::cls_hierarchy_root)))
 								{
 									for (class_descriptor* base = derived->base_class; base != NULL; base = base->base_class) { 
@@ -1742,8 +1742,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			assert(desc != &hash_item::self_class); // should not be accessed because we traverse hash_table in special way
 
 			desc = (desc == &hash_table::self_class)
-				? &pgsql_dictionary::self_class : (desc == &B_tree::self_class || desc == &SB_tree16::self_class) 
-				  ? &pgsql_index::self_class : desc;
+				? &pgsql_dictionary::self_class : is_btree(desc) ? &pgsql_index::self_class : desc;
 			std::string desc_data((char*)desc->dbs_desc, desc->dbs_desc->get_size());
 			((dbs_class_descriptor*)desc_data.data())->pack();
 			txn->prepared("put_class")(cpid)(desc->name)(txn->esc_raw(desc_data)).exec();						
@@ -1773,7 +1772,9 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		objref_t ref = makeref(cpid, opid);
 		stmt(ref);
 
-		if (desc == &pgsql_dictionary::self_class) { 
+		if (desc->class_attr & class_descriptor::cls_non_relational)  { 
+			continue; // skip non-relational classes
+		} else if (desc == &pgsql_dictionary::self_class) { 
 			// store hash table
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
@@ -1799,7 +1800,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 					}
 				}
 			}
-		} else { 
+		} else if (!(desc->class_attr & class_descriptor::cls_non_relational))  { 
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
 				opid_t obj;
@@ -1822,7 +1823,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				std::ifstream ifs(blob_path + opid_hex + ".blob");
 				std::string blob((std::istreambuf_iterator<char>(ifs)),
 								 (std::istreambuf_iterator<char>()));
-				txn->prepared("write_file")(txn->esc_raw(blob))(opid).exec();
+				txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
 			} else if (desc->n_varying_references != 0) { 
 				store_array_of_references(stmt, (char*)&objrefs, src_bins);
 			} else { 
@@ -1843,6 +1844,10 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		result r = stmt.exec();
 		assert(r.affected_rows() == 1);
     } while (!queue.is_empty());
+
+	for (cpid_t i = 0; i <= max_cpid; i++) { 
+		delete[] (char*)goods_classes[i];
+	}
 
 	txn->prepared("set_oid")(max_opid).exec();
 	txn->prepared("set_cid")(max_cpid).exec();
