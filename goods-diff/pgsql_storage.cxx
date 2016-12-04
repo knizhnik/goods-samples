@@ -1800,7 +1800,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 					}
 				}
 			}
-		} else if (!(desc->class_attr & class_descriptor::cls_non_relational))  { 
+		} else { 
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
 				opid_t obj;
@@ -1845,7 +1845,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		assert(r.affected_rows() == 1);
     } while (!queue.is_empty());
 
-	for (cpid_t i = 0; i <= max_cpid; i++) { 
+	for (cpid_t i = RAW_CPID; i <= max_cpid; i++) { 
 		delete[] (char*)goods_classes[i];
 	}
 
