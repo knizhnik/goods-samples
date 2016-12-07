@@ -41,21 +41,29 @@ inline int get_inheritance_depth(class_descriptor* cls) {
 	return depth;
 }
 
-static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns, int inheritance_depth)
+static boolean get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns, int inheritance_depth, bool ignore_errors)
 {
 	if (first == NULL) {
-		return;
+		return true;
 	}
 
 	field_descriptor* field = first;
     do { 
+		if (!ignore_errors && field->loc.offs < 0) { 
+			fprintf(stderr, "Field %s is not present in new database schema\n", field->name);
+			return false;
+		}
 		if (field->loc.type == fld_structure) { 
-			get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
+			if (!get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0, ignore_errors)) {
+				return false;
+			}
 		} else { 
 			columns.push_back(prefix + field->name);
 		}
         field = (field_descriptor*)field->next;
     } while (field != first);
+	
+	return true;
 }
 
 static std::string get_host(std::string const& address)
@@ -517,7 +525,7 @@ connection* pgsql_storage::open_connection()
 			class_descriptor* root_class = get_root_class(cls);
 			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
-			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
+			get_columns("", cls->fields, columns, get_inheritance_depth(cls), true);
 			{
 				std::stringstream sql;			
 				sql << "insert into \"" << table_name << "\" (opid";
@@ -1670,6 +1678,12 @@ inline objref_t makeref(cpid_t cpid, opid_t opid)
 	return opid == ROOT_OPID ? ROOT_OPID : MAKE_OBJREF(cpid, opid);
 }
 
+std::string int2string(int x) { 
+	char buf[64];
+	sprintf(buf, "%x", x);
+	return std::string(buf);
+}
+
 boolean pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
 {
 	pgsql_storage::autocommit txn(this);
@@ -1736,14 +1750,36 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			if (opid == ROOT_OPID) { 
 				txn->prepared("add_root")(cpid).exec(); // store information about root 
 			}
-			goods_classes[cpid] = dbs_desc;
-			orm_classes[cpid] = desc;
 
 			assert(desc != &hash_item::self_class); // should not be accessed because we traverse hash_table in special way
 
-			desc = (desc == &hash_table::self_class)
+			class_descriptor* dst_desc = (desc == &hash_table::self_class)
 				? &pgsql_dictionary::self_class : is_btree(desc) ? &pgsql_index::self_class : desc;
-			std::string desc_data((char*)desc->dbs_desc, desc->dbs_desc->get_size());
+			desc = (desc == dst_desc) ? new class_descriptor(cpid, desc, dbs_desc) : dst_desc;
+
+			goods_classes[cpid] = dbs_desc;
+			orm_classes[cpid] = desc;
+
+			std::vector<std::string> columns;
+			class_descriptor* root_class = get_root_class(desc);
+			std::string table_name(root_class->name);
+			if (!get_columns("", desc->fields, columns, get_inheritance_depth(desc), false)) {
+				return false;
+			} else {
+				std::stringstream sql;			
+				sql << "insert into \"" << table_name << "\" (opid";
+				for (size_t i = 0; i < columns.size(); i++) { 
+					sql << ",\"" << columns[i] << '\"';
+				}
+				sql << ") values ($1";
+				for (size_t i = 0; i < columns.size(); i++) { 
+					sql << ",$" << (i+2);
+				}
+				sql << ")";
+				txn->conn().prepare(std::string(desc->name) + "_convert_" + int2string(cpid), sql.str());
+			}
+
+			std::string desc_data((char*)dst_desc->dbs_desc, dst_desc->dbs_desc->get_size());
 			((dbs_class_descriptor*)desc_data.data())->pack();
 			txn->prepared("put_class")(cpid)(desc->name)(txn->esc_raw(desc_data)).exec();						
 		}
@@ -1767,7 +1803,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		
 		char* src_refs = &buf;			   
 		char* src_bins = src_refs + n_refs*6;
-		invocation stmt = txn->prepared(std::string(desc->name) + "_insert") ;
+		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string(cpid)) ;
 		
 		objref_t ref = makeref(cpid, opid);
 		stmt(ref);
@@ -1818,9 +1854,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			}
 			assert(src_refs == src_bins);
 			if (desc == &ExternalBlob::self_class) { 
-				char opid_hex[16];
-				sprintf(opid_hex, "%x", opid);
-				std::ifstream ifs(blob_path + opid_hex + ".blob");
+				std::ifstream ifs(blob_path + int2string(opid) + ".blob");
 				std::string blob((std::istreambuf_iterator<char>(ifs)),
 								 (std::istreambuf_iterator<char>()));
 				txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
