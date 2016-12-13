@@ -49,16 +49,24 @@ static boolean get_columns(std::string const& prefix, field_descriptor* first, s
 
 	field_descriptor* field = first;
     do { 
-		if (!ignore_errors && field->loc.offs < 0) { 
-			fprintf(stderr, "Field %s is not present in new database schema\n", field->name);
-			return false;
-		}
 		if (field->loc.type == fld_structure) { 
 			if (!get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0, ignore_errors)) {
 				return false;
 			}
 		} else { 
-			columns.push_back(prefix + field->name);
+			if (!ignore_errors && field->loc.offs < 0 && field->loc.type != fld_reference) { 
+				fprintf(stderr, "Field %s is not present in new database schema\n", field->name);
+				return false;
+			}
+			std::string name = prefix + field->name;
+			int i = columns.size();
+			while (--i >= 0 && columns[i] != name);
+			if (i < 0) { 
+				columns.push_back(name);
+			} else { 
+				// duplicate field
+				field->loc.offs = -1; // do not store this field
+			}
 		}
         field = (field_descriptor*)field->next;
     } while (field != first);
@@ -1140,7 +1148,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  stid_t sid;
 				  src_refs = unpackref(sid, opid, src_refs);
 				  size -= sizeof(dbs_reference_t);
-				  stmt(opid);
+				  if (field->loc.offs >= 0) { 
+					  stmt(opid);
+				  }
 				  break;			  
 			  }
 			  case fld_string:
@@ -1688,6 +1698,8 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 {
 	pgsql_storage::autocommit txn(this);
 
+	txn.commitOnExit = false;
+
 	std::string idx_path = std::string(databasePath) + "/" + databaseName + ".idx";
 	std::string odb_path = std::string(databasePath) + "/" + databaseName + ".odb";
 	std::string blob_path = std::string(databasePath) + "/blobs/";
@@ -1888,6 +1900,9 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 	
 	idx_file.close();
 	odb_file.close();
+
+	txn.commitOnExit = true;
+
 	return true;
 }
 	

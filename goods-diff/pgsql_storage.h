@@ -91,19 +91,29 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     struct autocommit { 
 	pgsql_storage* storage;
 	work *txn;
-	bool toplevel;
+	bool topLevel;
+	bool commitOnExit;
 
 	work* operator->() { 
 	    return txn;
 	}
 
-	autocommit(pgsql_storage* s) : storage(s) {
-	    txn = storage->start_transaction(toplevel);
+	void onabort() {
+	    txn->abort();
+	    topLevel = false; // prevent commit
+	}
+
+	autocommit(pgsql_storage* s) : storage(s), commitOnExit(true) {
+	    txn = storage->start_transaction(topLevel);
 	}
 
 	~autocommit() { 
-	    if (toplevel) { 
-		storage->commit_transaction();
+	    if (commitOnExit) { 
+		if (topLevel) { 
+		    storage->commit_transaction();
+		}
+	    } else { 
+		txn->abort();
 	    }
 	}
     };
