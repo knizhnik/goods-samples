@@ -41,37 +41,31 @@ inline int get_inheritance_depth(class_descriptor* cls) {
 	return depth;
 }
 
-static boolean get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns, int inheritance_depth, bool ignore_errors)
+static void get_columns(std::string const& prefix, field_descriptor* first, std::vector<std::string>& columns, int inheritance_depth)
 {
 	if (first == NULL) {
-		return true;
+		return;
 	}
 
 	field_descriptor* field = first;
     do { 
 		if (field->loc.type == fld_structure) { 
-			if (!get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0, ignore_errors)) {
-				return false;
-			}
+			get_columns(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, columns, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0);
 		} else { 
-			if (!ignore_errors && field->loc.offs < 0 && field->loc.type != fld_reference) { 
-				fprintf(stderr, "Field %s is not present in new database schema\n", field->name);
-				return false;
-			}
-			std::string name = prefix + field->name;
-			int i = columns.size();
-			while (--i >= 0 && columns[i] != name);
-			if (i < 0) { 
-				columns.push_back(name);
-			} else { 
-				// duplicate field
-				field->loc.offs = -1; // do not store this field
+			if (field->loc.offs >= 0) { 
+				std::string name = prefix + field->name;
+				int i = columns.size();
+				while (--i >= 0 && columns[i] != name);
+				if (i < 0) { 
+					columns.push_back(name);
+				} else { 
+					// duplicate field
+					field->loc.offs = -1; // do not store this field
+				}
 			}
 		}
         field = (field_descriptor*)field->next;
     } while (field != first);
-	
-	return true;
 }
 
 static std::string get_host(std::string const& address)
@@ -533,7 +527,7 @@ connection* pgsql_storage::open_connection()
 			class_descriptor* root_class = get_root_class(cls);
 			std::string table_name(root_class->name);
 			std::string class_name(cls->name);
-			get_columns("", cls->fields, columns, get_inheritance_depth(cls), true);
+			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
 			{
 				std::stringstream sql;			
 				sql << "insert into \"" << table_name << "\" (opid";
@@ -1084,28 +1078,37 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 	autocommit txn(this);
 	field_descriptor* field = first;	
     do { 
+		int offs = field->loc.offs;
 		if (field->loc.n_items != 1) { 
 			switch (field->loc.type) { 
 			  case fld_unsigned_integer:
 				if (field->loc.size == 1) { 
 					if (field->loc.n_items == 0) {
 						std::string val(src_bins, size);
-						stmt(txn->esc_raw(val));
+						if (offs >= 0) {
+							stmt(txn->esc_raw(val));
+						}
 						src_bins += size;
 						size = 0;
 					} else { 
 						std::string val(src_bins, field->loc.n_items);
-						stmt(txn->esc_raw(val));
+						if (offs >= 0) {
+							stmt(txn->esc_raw(val));
+						}
 						src_bins += field->loc.n_items;
 						size -= field->loc.n_items;
 					}
 				} else { 
 					if (field->loc.n_items == 0) {
-						store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						if (offs >= 0) {
+							store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						}
 						src_bins += size;
 						size = 0;
 					} else { 
-						store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						if (offs >= 0) {
+							store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						}
 						src_bins += field->loc.n_items*field->loc.size;
 						size -= field->loc.n_items*field->loc.size;
 					}
@@ -1116,22 +1119,30 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				if (field->loc.size == 1) {
 					if (field->loc.n_items == 0) {
 						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? size-1 : size);
-						stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						if (offs >= 0) {
+							stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						}
 						src_bins += size;
 						size = 0;
 					} else { 
 						std::string val(src_bins, field->loc.n_items);
-						stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						if (offs >= 0) {
+							stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+						}
 						src_bins += field->loc.n_items;
 						size -= field->loc.n_items;
 					}
 				} else { 
 					if (field->loc.n_items == 0) {
-						store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						if (offs >= 0) {
+							store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+						}
 						src_bins += size;
 						size = 0;
 					} else { 
-						store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						if (offs >= 0) {						
+							store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+						}
 						src_bins += field->loc.n_items*field->loc.size;
 						size -= field->loc.n_items*field->loc.size;
 					}					
@@ -1148,7 +1159,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  stid_t sid;
 				  src_refs = unpackref(sid, opid, src_refs);
 				  size -= sizeof(dbs_reference_t);
-				  if (field->loc.offs >= 0) { 
+				  if (offs >= 0) { 
 					  stmt(opid);
 				  }
 				  break;			  
@@ -1169,9 +1180,11 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					  wstring_t wstr(&buf[0]);
 					  char* chars = wstr.getChars();
 					  assert(chars != NULL);
-					  stmt(chars);
+					  if (offs >= 0) {
+						  stmt(chars);
+					  }
 					  delete[] chars;
-				  } else {
+				  } else if (offs >= 0) {
 					  stmt(); // store NULL
 				  }
 				  break;
@@ -1180,7 +1193,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  {
 				  size_t len = unpack4(src_bins);
 				  std::string blob(src_bins+4, len);
-				  stmt(txn->esc_raw(blob));
+				  if (offs >= 0) {
+					  stmt(txn->esc_raw(blob));
+				  }
 				  src_bins += 4 + len;
 				  size -= 4 + len;
 				  break;
@@ -1188,16 +1203,23 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_signed_integer:
 				switch (field->loc.size) { 
 				  case 1:	
-					stmt((int2)*src_bins++);
+				    if (offs >= 0) {
+					    stmt((int2)*src_bins);
+				    }
+				    src_bins += 1;
 					size -= 1;
 					break;
 				  case 2:
-					stmt((int2)unpack2(src_bins));
+				    if (offs >= 0) {
+						stmt((int2)unpack2(src_bins));
+					}
 					src_bins += 2;
 					size -= 2;
 					break;
 				  case 4:
-					stmt((int4)unpack4(src_bins));
+				    if (offs >= 0) {
+						stmt((int4)unpack4(src_bins));
+					}
 					src_bins += 4;
 					size -= 4;
 					break;
@@ -1205,7 +1227,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  {
 					  int8 ival;
 					  src_bins = unpack8((char*)&ival, src_bins);
-					  stmt(ival);
+					  if (offs >= 0) {
+						  stmt(ival);
+					  }
 					  size -= 8;
 					  break;
 				  }
@@ -1217,18 +1241,25 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				switch (field->loc.size) { 
 				  case 1:	
 					//stmt((nat2)*src_bins++);
-					stmt((int2)*src_bins++);
+				    if (offs >= 0) {
+						stmt((int2)*src_bins);
+					}
+					src_bins += 1;
 					size -= 1;
 					break;
 				  case 2:
 					//stmt(unpack2(src_bins));
-					stmt((int2)unpack2(src_bins));
+				    if (offs >= 0) {
+						stmt((int2)unpack2(src_bins));
+					}
 					src_bins += 2;
 					size -= 2;
 					break;
 				  case 4:
 					//stmt(unpack4(src_bins));
-					stmt((int4)unpack4(src_bins));
+				    if (offs >= 0) {
+						stmt((int4)unpack4(src_bins));
+					}
 					src_bins += 4;
 					size -= 4;
 					break;
@@ -1236,7 +1267,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  {
 					  int8 ival;
 					  src_bins = unpack8((char*)&ival, src_bins);
-					  stmt(ival);
+					  if (offs >= 0) {
+						  stmt(ival);
+					  }
 					  size -= 8;
 					  break;
 				  }
@@ -1248,12 +1281,14 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				switch (field->loc.size) { 
 				  case 4:
 				  {					  
-					  union {
-						  float f;
-						  int4  i;
-					  } u;
-					  u.i = unpack4(src_bins);
-					  stmt(u.f);
+					  if (offs >= 0) {
+						  union {
+							  float f;
+							  int4  i;
+						  } u;
+						  u.i = unpack4(src_bins);
+						  stmt(u.f);
+					  }
 					  src_bins += 4;
 					  size -= 4;
 					  break;
@@ -1262,7 +1297,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  {
 					  double f;
 					  src_bins = unpack8((char*)&f, src_bins);
-					  stmt(f);
+					  if (offs >= 0) {
+						  stmt(f);
+					  }
 					  size -= 8;
 					  break;
 				  }
@@ -1271,7 +1308,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				}
 				break;
 			  case fld_structure:
-				  size = store_struct(field->components, stmt, src_refs, src_bins, size, is_zero_terminated);
+ 			    size = store_struct(field->components, stmt, src_refs, src_bins, size, is_zero_terminated);
 				break;
 			  default:
 				assert(false);
@@ -1775,21 +1812,18 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			std::vector<std::string> columns;
 			class_descriptor* root_class = get_root_class(desc);
 			std::string table_name(root_class->name);
-			if (!get_columns("", desc->fields, columns, get_inheritance_depth(desc), false)) {
-				return false;
-			} else {
-				std::stringstream sql;			
-				sql << "insert into \"" << table_name << "\" (opid";
-				for (size_t i = 0; i < columns.size(); i++) { 
-					sql << ",\"" << columns[i] << '\"';
-				}
-				sql << ") values ($1";
-				for (size_t i = 0; i < columns.size(); i++) { 
-					sql << ",$" << (i+2);
-				}
-				sql << ")";
-				txn->conn().prepare(std::string(desc->name) + "_convert_" + int2string(cpid), sql.str());
+			get_columns("", desc->fields, columns, get_inheritance_depth(desc));
+			std::stringstream sql;			
+			sql << "insert into \"" << table_name << "\" (opid";
+			for (size_t i = 0; i < columns.size(); i++) { 
+				sql << ",\"" << columns[i] << '\"';
 			}
+			sql << ") values ($1";
+			for (size_t i = 0; i < columns.size(); i++) { 
+				sql << ",$" << (i+2);
+			}
+			sql << ")";
+			txn->conn().prepare(std::string(desc->name) + "_convert_" + int2string(cpid), sql.str());
 
 			std::string desc_data((char*)dst_desc->dbs_desc, dst_desc->dbs_desc->get_size());
 			((dbs_class_descriptor*)desc_data.data())->pack();
