@@ -1092,7 +1092,7 @@ std::string convertString(std::string const& val, char const* encoding)
 		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
 		return "";
 	}	
-	std::vector<char> chars(len*2);
+	std::vector<char> chars(len*4);
 	len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &wchars[0], len, &chars[0], len*2, NULL, NULL);
 	if (len == 0) { 
 		fprintf(stderr, "Failed to convert string '%s' to UTF-8\n", val.c_str());
@@ -1241,12 +1241,20 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 						  src_bins += 2;
 						  size -= 2;
 					  }
-					  buf[len] = 0;
-					  wstring_t wstr(&buf[0]);
-					  char* chars = wstr.getChars();
-					  assert(chars != NULL);
 					  if (offs >= 0) {
+#ifdef _WIN32
+					  
+						  std::vector<char> chars(len*4);
+						  len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
+						  assert(len != 0);
+						  stmt(std::string(&chars[0], len));
+#else
+						  buf[len] = 0;
+						  wstring_t wstr(&buf[0]);
+						  char* chars = wstr.getChars();
+						  assert(chars != NULL);
 						  stmt(chars);
+#endif
 					  }
 					  delete[] chars;
 				  } else if (offs >= 0) {
