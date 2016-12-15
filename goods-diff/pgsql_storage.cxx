@@ -1109,7 +1109,7 @@ std::string convertString(std::string const& val, char const* encoding)
 	size_t srcSize = val.size();
 	size_t dstSize = chars.size();
 	char* src = (char*)val.c_str();
-	char* dst = &buf[0];
+	char* dst = &chars[0];
 	size_t rc = iconv(ic, &src, &srcSize, &dst, &dstSize);
 	iconv_close(ic);
 	if (rc == (size_t)-1) {
