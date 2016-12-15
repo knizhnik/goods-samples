@@ -1,6 +1,10 @@
 #include <set>
 #include "pgsql_storage.h"
 
+#ifndef _WIN32
+#include <iconv.h>
+#endif
+
 #ifndef GOODS_DATABASE_CONVERTER
 #define GOODS_DATABASE_CONVERTER 1
 #endif
@@ -1070,7 +1074,54 @@ static void store_int_array(invocation& stmt, char* src_bins, int elem_size, int
 	stmt(buf.str());	
 }
 
-size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated)
+std::string convertString(std::string const& val, char const* encoding) 
+{
+	if (val.empty()) { 
+		return val;
+	}
+#ifdef _WIN32
+	std::vector<wchar_t> wchars(val.size());
+	int cp;
+	if (strcmp(encoding, "ansi") == 0)  { 
+		cp = CP_ACP;
+	} else { 
+		cp = CP_OEMCP;
+	}
+	int len = MultiByteToWideChar(cp, MB_PRECOMPOSED|WC_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+	if (len == 0) { 
+		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
+		return "";
+	}	
+	std::vector<char> chars(len*2);
+	len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &wchars[0], len, &chars[0], len*2, NULL, NULL);
+	if (len == 0) { 
+		fprintf(stderr, "Failed to convert string '%s' to UTF-8\n", val.c_str());
+		return val;
+	}	
+	return std::string(&chars[0], len);
+#else
+	iconv_t ic = iconv_open("UTF-8", encoding);
+	if (ic < 0) {
+		fprintf(stderr, "Usupported charset %s\n", encoding);
+		return "";
+	}
+	std::vector<char> chars(val.size()*2);
+	size_t srcSize = val.size();
+	size_t dstSize = chars.size();
+	char* src = (char*)val.c_str();
+	char* dst = &buf[0];
+	size_t rc = iconv(ic, &src, &srcSize, &dst, &dstSize);
+	iconv_close(ic);
+	if (rc == (size_t)-1) {
+		fprintf(stderr, "Failed to convert string '%s' to UTF-8\n", val.c_str());
+		return "";
+	}
+	return std::string(&chars[0], rc);
+#endif
+}
+	
+	
+size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated, char const* encoding)
 {	
 	if (first == NULL) {
 		return size;
@@ -1120,14 +1171,28 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					if (field->loc.n_items == 0) {
 						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? size-1 : size);
 						if (offs >= 0) {
-							stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+							if (field->flags & fld_binary) {
+								stmt(txn->esc_raw(val));
+							} else { 
+								if (encoding) { 
+									val = convertString(val, encoding);
+								}
+								stmt(val);
+							}
 						}
 						src_bins += size;
 						size = 0;
 					} else { 
 						std::string val(src_bins, field->loc.n_items);
 						if (offs >= 0) {
-							stmt((field->flags & fld_binary) ? txn->esc_raw(val) : val);
+							if (field->flags & fld_binary) {
+								stmt(txn->esc_raw(val));
+							} else { 
+								if (encoding) { 
+									val = convertString(val, encoding);
+								}
+								stmt(val);
+							}
 						}
 						src_bins += field->loc.n_items;
 						size -= field->loc.n_items;
@@ -1308,7 +1373,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				}
 				break;
 			  case fld_structure:
- 			    size = store_struct(field->components, stmt, src_refs, src_bins, size, is_zero_terminated);
+ 			    size = store_struct(field->components, stmt, src_refs, src_bins, size, is_zero_terminated, encoding);
 				break;
 			  default:
 				assert(false);
@@ -1362,7 +1427,7 @@ boolean pgsql_storage::commit_coordinator_transaction(int n_trans_servers,
 					store_array_of_references(stmt, src_refs, src_bins);
 				} else { 
 					size_t size = hdr->get_size();
-					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc));
+					size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text_set_member(desc), NULL);
 					assert(left == 0);
 				}
 				result r = stmt.exec();
@@ -1850,7 +1915,8 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		char* src_refs = &buf;			   
 		char* src_bins = src_refs + n_refs*6;
 		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string(cpid)) ;
-		
+		char const* encoding = getenv("GOODS_ENCODING");
+
 		objref_t ref = makeref(cpid, opid);
 		stmt(ref);
 
@@ -1917,7 +1983,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 					}						
 				}
 				src_refs = (char*)&objrefs;
-				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text);
+				size_t left = store_struct(desc->fields, stmt, src_refs, src_bins, size, is_text, encoding);
 				assert(left == 0);
 			}
 		}
