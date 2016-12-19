@@ -1254,9 +1254,9 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 						  char* chars = wstr.getChars();
 						  assert(chars != NULL);
 						  stmt(chars);
+						  delete[] chars;
 #endif
 					  }
-					  delete[] chars;
 				  } else if (offs >= 0) {
 					  stmt(); // store NULL
 				  }
