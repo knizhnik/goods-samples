@@ -1917,7 +1917,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			return false;
 		}
 		size_t n_refs = dbs_desc->get_number_of_references(size);
-
+		size_t orig_size = size;
 		size += 2*n_refs; // ORM refenreces are 8 bytes instead of 6-bytes GOODS referenced
 		
 		char* src_refs = &buf;			   
@@ -1983,10 +1983,10 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			} else { 
 				bool is_text = is_text_set_member(desc);
 				if (!is_text && desc->base_class == &set_member::self_class) {
-					if (&buf + size == src_bins + 8) {
+					if (&buf + orig_size == src_bins + 8) {
 						pack8(*(nat8*)src_bins);
 					} else { 
-						assert(&buf + size == src_bins + 4);
+						assert(&buf + orig_size == src_bins + 4);
 						pack4(*(nat4*)src_bins);
 					}						
 				}
