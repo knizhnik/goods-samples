@@ -72,6 +72,54 @@ static void get_columns(std::string const& prefix, field_descriptor* first, std:
     } while (field != first);
 }
 
+
+static void compare_classes(char const* class_name, cpid_t cpid, std::string const& prefix, field_descriptor* goods_first, field_descriptor* orm_first)
+{
+	field_descriptor* field = goods_first;
+	if (field != NULL) {
+		do { 
+			if (field->loc.type == fld_structure) { 
+				field_descriptor* f = orm_first; 
+				if (f != NULL) { 
+					while (strcmp(f->name, field->name) != 0 && (f = (field_descriptor*)f->next) != orm_first);
+				}
+				compare_classes(class_name, cpid, prefix + field->name + ".", field->components, f == orm_first ? NULL : f->components);
+			} else { 
+				std::string name = prefix + field->name;
+				if (field->loc.offs >= 0) { 
+					field_descriptor* f = goods_first; 
+					while (strcmp(f->name, field->name) != 0) {
+						f = (field_descriptor*)f->next;
+					}
+					if (f != field) { 	
+						printf("= %s(%x)::%s\n", class_name, cpid, name.c_str());
+					} else if (field->loc.type != field->dbs.type || field->loc.n_items != field->dbs.n_items) { 
+						printf("# %s(%x)::%s: loc.type=%d, loc.n_items=%d, dbs.type=%d, dbs.n_items=%d\n", class_name, cpid, name.c_str(),
+							   field->loc.type, field->loc.n_items, field->dbs.type, field->dbs.n_items);
+					}
+				} else { 
+					printf("- %s(%x)::%s\n", class_name, cpid, name.c_str());
+				}
+			}
+			field = (field_descriptor*)field->next;
+		} while (field != goods_first);
+	}
+	field = orm_first;
+	if (field != NULL) { 
+		do { 
+			field_descriptor* f = goods_first; 
+			if (f != NULL) { 
+				while (strcmp(f->name, field->name) != 0 && (f = (field_descriptor*)f->next) != goods_first);
+			}
+			if (f == goods_first) { 
+				std::string name = prefix + field->name;
+				printf("+ %s(%x)::%s\n", class_name, cpid, name.c_str());
+			} 
+			field = (field_descriptor*)field->next;
+		} while (field != orm_first);
+	}
+}
+
 static std::string get_host(std::string const& address)
 {
 	return address.substr(0, address.find(':'));
@@ -1887,6 +1935,9 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			std::vector<std::string> columns;
 			class_descriptor* root_class = get_root_class(desc);
 			std::string table_name(root_class->name);
+			if (desc != dst_desc) { 
+				compare_classes(desc->name, cpid, "", desc->fields, dst_desc->fields);
+			}
 			get_columns("", desc->fields, columns, get_inheritance_depth(desc));
 			std::stringstream sql;			
 			sql << "insert into \"" << table_name << "\" (opid";
