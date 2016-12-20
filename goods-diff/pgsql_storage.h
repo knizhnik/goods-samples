@@ -98,11 +98,6 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 	    return txn;
 	}
 
-	void onabort() {
-	    txn->abort();
-	    topLevel = false; // prevent commit
-	}
-
 	autocommit(pgsql_storage* s) : storage(s), commitOnExit(true) {
 	    txn = storage->start_transaction(topLevel);
 	}

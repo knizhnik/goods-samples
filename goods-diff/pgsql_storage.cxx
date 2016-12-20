@@ -1130,11 +1130,11 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 	field_descriptor* field = first;	
     do { 
 		int offs = field->loc.offs;
-		if (field->loc.n_items != 1) { 
-			switch (field->loc.type) { 
+		if (field->dbs.n_items != 1) { 
+			switch (field->dbs.type) { 
 			  case fld_unsigned_integer:
-				if (field->loc.size == 1) { 
-					if (field->loc.n_items == 0) {
+				if (field->dbs.size == 1) { 
+					if (field->dbs.n_items == 0) {
 						std::string val(src_bins, size);
 						if (offs >= 0) {
 							stmt(txn->esc_raw(val));
@@ -1142,33 +1142,33 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 						src_bins += size;
 						size = 0;
 					} else { 
-						std::string val(src_bins, field->loc.n_items);
+						std::string val(src_bins, field->dbs.n_items);
 						if (offs >= 0) {
 							stmt(txn->esc_raw(val));
 						}
-						src_bins += field->loc.n_items;
-						size -= field->loc.n_items;
+						src_bins += field->dbs.n_items;
+						size -= field->dbs.n_items;
 					}
 				} else { 
-					if (field->loc.n_items == 0) {
+					if (field->dbs.n_items == 0) {
 						if (offs >= 0) {
-							store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+							store_int_array(stmt, src_bins, field->dbs.size, size/field->dbs.size);
 						}
 						src_bins += size;
 						size = 0;
 					} else { 
 						if (offs >= 0) {
-							store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+							store_int_array(stmt, src_bins, field->dbs.size, field->dbs.n_items);
 						}
-						src_bins += field->loc.n_items*field->loc.size;
-						size -= field->loc.n_items*field->loc.size;
+						src_bins += field->dbs.n_items*field->dbs.size;
+						size -= field->dbs.n_items*field->dbs.size;
 					}
 				}
 				break;
 
 			  case fld_signed_integer:
-				if (field->loc.size == 1) {
-					if (field->loc.n_items == 0) {
+				if (field->dbs.size == 1) {
+					if (field->dbs.n_items == 0) {
 						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? size-1 : size);
 						if (offs >= 0) {
 							if (field->flags & fld_binary) {
@@ -1183,7 +1183,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 						src_bins += size;
 						size = 0;
 					} else { 
-						std::string val(src_bins, field->loc.n_items);
+						std::string val(src_bins, field->dbs.n_items);
 						if (offs >= 0) {
 							if (field->flags & fld_binary) {
 								stmt(txn->esc_raw(val));
@@ -1194,22 +1194,22 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 								stmt(val);
 							}
 						}
-						src_bins += field->loc.n_items;
-						size -= field->loc.n_items;
+						src_bins += field->dbs.n_items;
+						size -= field->dbs.n_items;
 					}
 				} else { 
-					if (field->loc.n_items == 0) {
+					if (field->dbs.n_items == 0) {
 						if (offs >= 0) {
-							store_int_array(stmt, src_bins, field->loc.size, size/field->loc.size);
+							store_int_array(stmt, src_bins, field->dbs.size, size/field->dbs.size);
 						}
 						src_bins += size;
 						size = 0;
 					} else { 
 						if (offs >= 0) {						
-							store_int_array(stmt, src_bins, field->loc.size, field->loc.n_items);
+							store_int_array(stmt, src_bins, field->dbs.size, field->dbs.n_items);
 						}
-						src_bins += field->loc.n_items*field->loc.size;
-						size -= field->loc.n_items*field->loc.size;
+						src_bins += field->dbs.n_items*field->dbs.size;
+						size -= field->dbs.n_items*field->dbs.size;
 					}					
 				}
 				break;
@@ -1217,7 +1217,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				assert(false);
 			}
 		} else {
-			switch(field->loc.type) { 
+			switch(field->dbs.type) { 
 			  case fld_reference:
 			  {
 				  objref_t opid;
@@ -1244,9 +1244,11 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					  if (offs >= 0) {
 #ifdef _WIN32
 					  
-						  std::vector<char> chars(len*4);
-						  len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
-						  assert(len != 0);
+						  std::vector<char> chars(len*4 + 1);
+						  if (len != 0) { 
+							  len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
+							  assert(len != 0);
+						  }
 						  stmt(std::string(&chars[0], len));
 #else
 						  buf[len] = 0;
@@ -1274,7 +1276,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  break;
 			  }
 			  case fld_signed_integer:
-				switch (field->loc.size) { 
+				switch (field->dbs.size) { 
 				  case 1:	
 				    if (offs >= 0) {
 					    stmt((int2)*src_bins);
@@ -1311,7 +1313,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				}
 				break;
 			  case fld_unsigned_integer:
-				switch (field->loc.size) { 
+				switch (field->dbs.size) { 
 				  case 1:	
 					//stmt((nat2)*src_bins++);
 				    if (offs >= 0) {
@@ -1351,7 +1353,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				}
 				break;
 			  case fld_real:
-				switch (field->loc.size) { 
+				switch (field->dbs.size) { 
 				  case 4:
 				  {					  
 					  if (offs >= 0) {
@@ -1908,6 +1910,17 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		if (cpid > max_cpid) { 
 			max_cpid = cpid;
 		}
+		objref_t ref = makeref(cpid, opid);
+		if (desc == &ExternalBlob::self_class) { 
+			std::ifstream ifs(blob_path + int2string(opid) + ".blob");
+			std::string blob((std::istreambuf_iterator<char>(ifs)),
+							 (std::istreambuf_iterator<char>()));
+			txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
+			continue;
+		} else if (desc->class_attr & class_descriptor::cls_non_relational)  { 
+			continue; // skip non-relational classes	
+		}
+
 		size_t size = hnd->get_size();
 		buf.put(size);
 		status = odb_file.read(hnd->get_pos(), &buf, size);
@@ -1922,15 +1935,12 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		
 		char* src_refs = &buf;			   
 		char* src_bins = src_refs + n_refs*6;
-		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string(cpid)) ;
 		char const* encoding = getenv("GOODS_ENCODING");
-
-		objref_t ref = makeref(cpid, opid);
+		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string(cpid)) ;
 		stmt(ref);
 
-		if (desc->class_attr & class_descriptor::cls_non_relational)  { 
-			continue; // skip non-relational classes
-		} else if (desc == &pgsql_dictionary::self_class) { 
+		if (desc == &pgsql_dictionary::self_class) { 
+			dnm_buffer item_buf;
 			// store hash table
 			for (size_t i = 0; i < n_refs; i++) { 
 				stid_t sid;
@@ -1939,14 +1949,14 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				while (item != 0) {
 					hnd = &index_beg[item];
 					size = hnd->get_size();
-					buf.put(size);
-					status = odb_file.read(hnd->get_pos(), &buf, size);
+					item_buf.put(size);
+					status = odb_file.read(hnd->get_pos(), &item_buf, size);
 					if (status != file::ok) {
 						odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
 						fprintf(stderr, "Failed to read hash_item %x: %s\n", item, msgbuf);
 						return false;
 					}
-					char* body = &buf;
+					char* body = &item_buf;
 					body = unpack6(sid, item, body);
 					body = unpack6(sid, obj, body);
 					txn->prepared("hash_put")(ref)(body)(makeref(index_beg[obj].get_cpid(), obj)).exec();
@@ -1973,12 +1983,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				}
 			}
 			assert(src_refs == src_bins);
-			if (desc == &ExternalBlob::self_class) { 
-				std::ifstream ifs(blob_path + int2string(opid) + ".blob");
-				std::string blob((std::istreambuf_iterator<char>(ifs)),
-								 (std::istreambuf_iterator<char>()));
-				txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
-			} else if (desc->n_varying_references != 0) { 
+			if (desc->n_varying_references != 0) { 
 				store_array_of_references(stmt, (char*)&objrefs, src_bins);
 			} else { 
 				bool is_text = is_text_set_member(desc);
