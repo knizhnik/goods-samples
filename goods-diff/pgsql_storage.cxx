@@ -1854,6 +1854,18 @@ std::string int2string(int x) {
 	return std::string(buf);
 }
 
+
+static void map_classes(dbs_class_descriptor* desc)
+{
+	for (size_t i = 0; i < desc->n_fields; i++) { 
+		char* name = &desc->names[desc->fields[i].name];
+		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) { 
+			strcpy(name, "DbIndex");
+			break;
+		}
+	}
+}
+
 boolean pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
 {
 	pgsql_storage::autocommit txn(this);
@@ -1913,6 +1925,9 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				return false;
 			}
 			dbs_desc->unpack();
+
+			map_classes(dbs_desc);
+
 			char* class_name = dbs_desc->name();
 			desc = class_descriptor::find(class_name);
 			if (desc == NULL) { 
@@ -1927,7 +1942,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 
 			class_descriptor* dst_desc = (desc == &hash_table::self_class)
 				? &pgsql_dictionary::self_class : is_btree(desc) ? &pgsql_index::self_class : desc;
-			desc = (desc == dst_desc) ? new class_descriptor(cpid, desc, dbs_desc) : dst_desc;
+			desc = (desc == dst_desc && *desc->dbs_desc != *dbs_desc) ? new class_descriptor(cpid, desc, dbs_desc) : dst_desc;
 
 			goods_classes[cpid] = dbs_desc;
 			orm_classes[cpid] = desc;
