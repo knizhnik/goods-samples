@@ -306,7 +306,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("create domain objref as bigint");
 		txn.exec("create domain objrefs as bigint[]");
 		txn.commit();
-	} catch (pqxx_exception const&x) {} // ignore error if domain already exists
+	} catch (pqxx_exception const&) {} // ignore error if domain already exists
 
 	work txn(*con);	
 
@@ -1861,7 +1861,7 @@ static void map_classes(dbs_class_descriptor* desc)
 	for (size_t i = 0; i < desc->n_fields; i++) { 
 		char* name = &desc->names[desc->fields[i].name];
 		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) { 
-			desc->fields[i].name = desc->total_names_size;
+			desc->fields[i].name = desc->n_fields*sizeof(dbs_field_descriptor) + desc->total_names_size;
 			strcpy(&desc->names[desc->fields[i].name], "DbIndex");
 			desc->total_names_size += 8;
 			break;
