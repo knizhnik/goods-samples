@@ -795,7 +795,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 			refs_offs = unpack_struct(field == first && inheritance_depth > 1 ? prefix : prefix + field->name + ".", field->components, buf, record, refs_offs, field == first && inheritance_depth >  0 ? inheritance_depth-1 : 0, make_zero_terminated);
 		} else {
 			result::tuple::reference col(record[std::string("\"") + prefix + field->name + '"']);
-			assert(!col.is_null() || field->loc.type == fld_string);
+			assert(!col.is_null() || field->loc.type == fld_string || field->loc.type == fld_reference);
 			if (field->loc.n_items != 1) { 
 				if (field->loc.size == 1) {
 					if ((field->flags & fld_binary) || field->loc.type == fld_unsigned_integer) {
@@ -843,7 +843,7 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 				  {
 					  char* dst = &buf + refs_offs;
 					  refs_offs += sizeof(dbs_reference_t);
-					  objref_t opid = col.as(objref_t());
+					  objref_t opid = col.is_null() ? 0 : col.as(objref_t());
 					  packref(dst, 0, opid);
 					  break;			  
 				  }
@@ -1860,7 +1860,9 @@ static void map_classes(dbs_class_descriptor* desc)
 	for (size_t i = 0; i < desc->n_fields; i++) { 
 		char* name = &desc->names[desc->fields[i].name];
 		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) { 
-			strcpy(name, "DbIndex");
+			desc->fields[i].name = desc->total_names_size;
+			strcpy(desc->names[desc->fields[i].name], "DbIndex");
+			desc->total_names_size += 8;
 			break;
 		}
 	}
@@ -1917,8 +1919,9 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		class_descriptor* desc = orm_classes[cpid];
 		if (desc == NULL) {
 			dbs_handle* cls_hnd = &index_beg[cpid];
-			dbs_desc = (dbs_class_descriptor*)new char[cls_hnd->get_size()];
-			status = odb_file.read(cls_hnd->get_pos(), dbs_desc, cls_hnd->get_size());
+			size_t dbs_desc_size = cls_hnd->get_size();
+			dbs_desc = (dbs_class_descriptor*)new char[dbs_desc_size+8]; // reserve space for DbIndex
+			status = odb_file.read(cls_hnd->get_pos(), dbs_desc, dbs_desc_size);
 			if (status != file::ok) {
 				odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
 				fprintf(stderr, "Failed to read class descriptor %d: %s\n", cpid, msgbuf);
@@ -1986,6 +1989,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		} else if (desc->class_attr & class_descriptor::cls_non_relational)  { 
 			continue; // skip non-relational classes	
 		}
+		assert(strcmp(desc->name, "ExternalBlob") != 0); // should be &ExternalBlob::self_class
 
 		size_t size = hnd->get_size();
 		buf.put(size);
