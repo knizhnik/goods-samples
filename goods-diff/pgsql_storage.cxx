@@ -83,7 +83,8 @@ static void compare_classes(char const* class_name, cpid_t cpid, std::string con
 				if (f != NULL) { 
 					while (strcmp(f->name, field->name) != 0 && (f = (field_descriptor*)f->next) != orm_first);
 				}
-				compare_classes(class_name, cpid, prefix + field->name + ".", field->components, f == orm_first ? NULL : f->components);
+				compare_classes(class_name, cpid, prefix + field->name + ".", field->components, 
+								f != NULL && strcmp(f->name, field->name) == 0 ? f->components : NULL);
 			} else { 
 				std::string name = prefix + field->name;
 				if (field->loc.offs >= 0) { 
@@ -111,7 +112,7 @@ static void compare_classes(char const* class_name, cpid_t cpid, std::string con
 			if (f != NULL) { 
 				while (strcmp(f->name, field->name) != 0 && (f = (field_descriptor*)f->next) != goods_first);
 			}
-			if (f == goods_first) { 
+			if (f == NULL || strcmp(f->name, field->name) != 0) { 
 				std::string name = prefix + field->name;
 				printf("+ %s(%x)::%s\n", class_name, cpid, name.c_str());
 			} 
