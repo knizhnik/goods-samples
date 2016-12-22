@@ -1862,7 +1862,7 @@ static void map_classes(dbs_class_descriptor* desc)
 		char* name = &desc->names[desc->fields[i].name];
 		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) { 
 			desc->fields[i].name = desc->total_names_size;
-			strcpy(desc->names[desc->fields[i].name], "DbIndex");
+			strcpy(&desc->names[desc->fields[i].name], "DbIndex");
 			desc->total_names_size += 8;
 			break;
 		}
