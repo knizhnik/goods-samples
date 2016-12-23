@@ -306,9 +306,13 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("create domain objref as bigint");
 		txn.exec("create domain objrefs as bigint[]");
 		txn.commit();
-	} catch (pqxx_exception const&x) {} // ignore error if domain already exists
+	} catch (pqxx_exception const&) {} // ignore error if domain already exists
 
 	work txn(*con);	
+
+	if (!dbname.empty()) {
+		txn.exec("ALTER DATABASE " + dbname + " SET search_path = \"$user\", public, external_file");
+	}
 
 	txn.exec("create extension if not exists external_file");
 
@@ -1860,7 +1864,10 @@ static void map_classes(dbs_class_descriptor* desc)
 {
 	for (size_t i = 0; i < desc->n_fields; i++) { 
 		char* name = &desc->names[desc->fields[i].name];
-		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) { 
+		if (strncmp(name, "SB_tree", 7) == 0) { 
+			memcpy(name,  "DbIndex", 7);
+			break;
+		} else if (strcmp(name, "B_tree") == 0) {
 			desc->fields[i].name = desc->total_names_size;
 			strcpy(&desc->names[desc->fields[i].name], "DbIndex");
 			desc->total_names_size += 8;
@@ -1981,7 +1988,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			max_cpid = cpid;
 		}
 		objref_t ref = makeref(cpid, opid);
-		if (desc == &ExternalBlob::self_class) { 
+		if (strcmp(desc->name, "ExternalBlob") == 0) { 
 			std::ifstream ifs(blob_path + int2string(opid) + ".blob");
 			std::string blob((std::istreambuf_iterator<char>(ifs)),
 							 (std::istreambuf_iterator<char>()));
@@ -1990,8 +1997,6 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		} else if (desc->class_attr & class_descriptor::cls_non_relational)  { 
 			continue; // skip non-relational classes	
 		}
-		assert(strcmp(desc->name, "ExternalBlob") != 0); // should be &ExternalBlob::self_class
-
 		size_t size = hnd->get_size();
 		buf.put(size);
 		status = odb_file.read(hnd->get_pos(), &buf, size);
