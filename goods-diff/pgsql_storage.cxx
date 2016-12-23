@@ -79,12 +79,24 @@ static void compare_classes(char const* class_name, cpid_t cpid, std::string con
 	if (field != NULL) {
 		do { 
 			if (field->loc.type == fld_structure) { 
-				field_descriptor* f = orm_first; 
-				if (f != NULL) { 
-					while (strcmp(f->name, field->name) != 0 && (f = (field_descriptor*)f->next) != orm_first);
+				field_descriptor* first = orm_first; 
+				field_descriptor* matched = NULL;
+				while (first != NULL) {
+					field_descriptor* f = first;
+					do { 
+						if (strcmp(f->name, field->name) == 0) { 
+							matched = f;
+							break;
+						}
+					} while ((f = (field_descriptor*)f->next) != first);
+
+					if (matched || first->loc.type != fld_structure) { 
+						break;
+					}
+					first = first->components;
 				}
 				compare_classes(class_name, cpid, prefix + field->name + ".", field->components, 
-								f != NULL && strcmp(f->name, field->name) == 0 ? f->components : NULL);
+								matched ? matched->components : NULL);
 			} else { 
 				std::string name = prefix + field->name;
 				if (field->loc.offs >= 0) { 
@@ -1859,19 +1871,17 @@ std::string int2string(int x) {
 	return std::string(buf);
 }
 
-
 static void map_classes(dbs_class_descriptor* desc)
 {
 	for (size_t i = 0; i < desc->n_fields; i++) { 
 		char* name = &desc->names[desc->fields[i].name];
-		if (strcmp(name, "B_tree") == 0 || strncmp(name, "SB_tree", 7) == 0) {
-			desc->fields[i].name = desc->n_fields*sizeof(dbs_field_descriptor) + desc->total_names_size;
-			strcpy(&desc->names[desc->fields[i].name], "pgsql_index");
-			desc->total_names_size += 12;
+		if (strncmp(name, "SB_tree", 7) == 0) {
+			strcpy(&desc->names[desc->fields[i].name], "B_tree");
 			break;
 		}
 	}
 }
+
 
 boolean pgsql_storage::convert_goods_database(char const* databasePath, char const* databaseName)
 {
@@ -1925,7 +1935,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		if (desc == NULL) {
 			dbs_handle* cls_hnd = &index_beg[cpid];
 			size_t dbs_desc_size = cls_hnd->get_size();
-			dbs_desc = (dbs_class_descriptor*)new char[dbs_desc_size+12]; // reserve space for pgsql_index
+			dbs_desc = (dbs_class_descriptor*)new char[dbs_desc_size]; // reserve space for pgsql_index
 			status = odb_file.read(cls_hnd->get_pos(), dbs_desc, dbs_desc_size);
 			if (status != file::ok) {
 				odb_file.get_error_text(status, msgbuf, sizeof msgbuf);
@@ -1933,7 +1943,6 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				return false;
 			}
 			dbs_desc->unpack();
-
 			map_classes(dbs_desc);
 
 			char* class_name = dbs_desc->name();
