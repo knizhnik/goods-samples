@@ -1868,7 +1868,7 @@ static void map_classes(dbs_class_descriptor* desc)
 			memcpy(name,  "DbIndex", 7);
 			break;
 		} else if (strcmp(name, "B_tree") == 0) {
-			desc->fields[i].name = desc->total_names_size;
+			desc->fields[i].name = desc->n_fields*sizeof(dbs_field_descriptor) + desc->total_names_size;
 			strcpy(&desc->names[desc->fields[i].name], "DbIndex");
 			desc->total_names_size += 8;
 			break;
