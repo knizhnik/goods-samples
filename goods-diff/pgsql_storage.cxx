@@ -1909,6 +1909,12 @@ std::string pgsql_storage::GetCurrentConnectionString()
 #include "memmgr.h"
 #include "fstream"
 
+static inline size_t get_opid_hash(opid_t opid)
+{
+	static const int hash_const = 15;
+	return (opid >> hash_const) << hash_const;
+}
+
 inline char* unpack6(nat2& sid, opid_t& opid, char* src) { 
     return unpack4((char*)&opid, unpack2((char*)&sid, src));
 }
@@ -2048,10 +2054,18 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		}
 		objref_t ref = makeref(cpid, opid);
 		if (strcmp(desc->name, "ExternalBlob") == 0) { 
-			std::ifstream ifs(blob_path + int2string(opid) + ".blob");
-			std::string blob((std::istreambuf_iterator<char>(ifs)),
-							 (std::istreambuf_iterator<char>()));
-			txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
+			std::ifstream ifs(blob_path + int2string(get_opid_hash(opid)) + std::string("\\") + int2string(opid) + ".blob", 
+							  std::ifstream::binary);
+			if (ifs)
+			{				
+				ifs.seekg(0, std::ios::end);				
+				std::streampos length = ifs.tellg();
+				ifs.seekg(0, std::ios::beg);                   
+				std::vector<char> buffer(length);
+				ifs.read(&buffer[0], length);
+				std::string blob(&buffer[0], length);				
+				txn->prepared("write_file")(txn->esc_raw(blob))(ref).exec();
+			}
 			continue;
 		} else if (desc->class_attr & class_descriptor::cls_non_relational)  { 
 			continue; // skip non-relational classes	
