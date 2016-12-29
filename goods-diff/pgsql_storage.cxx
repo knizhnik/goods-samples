@@ -797,6 +797,31 @@ static void unpack_int_array(dnm_buffer& buf, std::string const& str, int elem_s
 	assert(arr_len == 0 || arr_len == n_items);
 }
 
+
+void pack_string(dnm_buffer& buf, std::string const& val)
+{
+#ifdef _WIN32	
+	std::vector<wchar_t> wchars(str.size());
+	int len = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED|WC_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+	if (len == 0) { 
+		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
+		return;
+	}	
+	char* dst = buf.append((1 + len)*2);
+	dst = pack2(dst, len);
+	for (int i = 0; i < len; i++) { 
+		dst = pack2(dst, (nat2)wchars[i]);
+	}
+#else
+	wstring_t wstr(val.c_str());
+	char* dst = buf.append((1 + wstr.length())*2);
+	dst = pack2(dst, wstr.length());
+	for (int i = 0; i < wstr.length(); i++) { 
+		dst = pack2(dst, (nat2)wstr[i]);
+	}
+#endif
+}	
+
 static size_t unpack_struct(std::string const& prefix, field_descriptor* first, 
 							dnm_buffer& buf, result::tuple const& record, size_t refs_offs, int inheritance_depth, 
 							bool make_zero_terminated)
@@ -867,16 +892,9 @@ static size_t unpack_struct(std::string const& prefix, field_descriptor* first,
 				  case fld_string:
 				  {
 					  if (col.is_null()) { 
-						  char* dst = buf.append(2);
-						  pack2(dst, 0xFFFF);
+						  pack2(buf.append(2), 0xFFFF);
 					  } else {
-						  std::string str = col.as(std::string());
-						  wstring_t wstr(str.c_str());
-						  char* dst = buf.append((1 + wstr.length())*2);
-						  dst = pack2(dst, wstr.length());
-						  for (int i = 0; i < wstr.length(); i++) { 
-							  dst = pack2(dst, (nat2)wstr[i]);
-						  }
+						  pack_string(buf, col.as(std::string()));
 					  }
 					  break;
 				  }
@@ -1193,8 +1211,31 @@ std::string convertString(std::string const& val, char const* encoding)
 	return std::string(&chars[0], rc);
 #endif
 }
-	
-	
+
+void unpack_string(invocation& stmt, char* body, size_t len)
+{
+	std::vector<wchar_t> buf(len+1);
+	for (size_t i = 0; i < len; i++) { 
+		buf[i] = unpack2(body);
+		body += 2;
+	}
+#ifdef _WIN32	
+	std::vector<char> chars(len*4 + 1);
+	if (len != 0) { 
+		len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
+		assert(len != 0);
+	}
+	stmt(std::string(&chars[0], len));
+#else
+	buf[len] = 0;
+	wstring_t wstr(&buf[0]);
+	char* chars = wstr.getChars();
+	assert(chars != NULL);
+	stmt(chars);
+	delete[] chars;
+#endif
+}
+
 size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, char* &src_refs, char* &src_bins, size_t size, bool is_zero_terminated, char const* encoding)
 {	
 	if (first == NULL) {
@@ -1226,18 +1267,24 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				} else { 
 					if (field->dbs.n_items == 0) {
 						if (offs >= 0) {
-							int used = (int)(size/field->dbs.size);
-							int allocated = used;
-							if (field->loc.n_items != 0 && field->loc.n_items != used) { 
-								if (field->loc.n_items < used) { 
-									fprintf(stderr, "Array is truncated from %d to %d\n",
-											used, field->loc.n_items);
-									used = allocated = field->loc.n_items;
-								} else { 
-									allocated = field->loc.n_items;
+	                        int used = (int)(size/field->dbs.size);
+							if (field->loc.type == fld_string) { 
+ 	                            if (offs >= 0) {
+	                                unpack_string(stmt, src_bins, used);
+                                }
+							} else { 
+								int allocated = used;
+								if (field->loc.n_items != 0 && field->loc.n_items != used) { 
+									if (field->loc.n_items < used) { 
+										fprintf(stderr, "Array is truncated from %d to %d\n",
+												used, field->loc.n_items);
+										used = allocated = field->loc.n_items;
+									} else { 
+										allocated = field->loc.n_items;
+									}
 								}
+								store_int_array(stmt, src_bins, field->dbs.size, used, allocated);							
 							}
-							store_int_array(stmt, src_bins, field->dbs.size, used, allocated);							
 						}
 						src_bins += size;
 						size = 0;
@@ -1353,30 +1400,11 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 				  src_bins += 2;
 				  size -= 2;
 				  if (len != 0xFFFF) { 
-					  std::vector<wchar_t> buf(len+1);
-					  for (size_t i = 0; i < len; i++) { 
-						  buf[i] = unpack2(src_bins);
-						  src_bins += 2;
-						  size -= 2;
+					  if (offs >= 0) { 
+						  unpack_string(stmt, src_bins, len);
 					  }
-					  if (offs >= 0) {
-#ifdef _WIN32
-					  
-						  std::vector<char> chars(len*4 + 1);
-						  if (len != 0) { 
-							  len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
-							  assert(len != 0);
-						  }
-						  stmt(std::string(&chars[0], len));
-#else
-						  buf[len] = 0;
-						  wstring_t wstr(&buf[0]);
-						  char* chars = wstr.getChars();
-						  assert(chars != NULL);
-						  stmt(chars);
-						  delete[] chars;
-#endif
-					  }
+					  src_bins += len*2;
+					  size -= len*2;
 				  } else if (offs >= 0) {
 					  stmt(); // store NULL
 				  }
