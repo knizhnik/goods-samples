@@ -1268,10 +1268,8 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					if (field->dbs.n_items == 0) {
 						if (offs >= 0) {
 	                        int used = (int)(size/field->dbs.size);
-							if (field->loc.type == fld_string) { 
- 	                            if (offs >= 0) {
-	                                unpack_string(stmt, src_bins, used);
-                                }
+							if (field->loc.type == fld_string && field->dbs.size == 2) { 
+								unpack_string(stmt, src_bins, used);
 							} else { 
 								int allocated = used;
 								if (field->loc.n_items != 0 && field->loc.n_items != used) { 
@@ -1291,17 +1289,21 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 					} else { 
 						if (offs >= 0) {
 							int used = field->dbs.n_items;
-							int allocated = used;
-							if (field->loc.n_items != 0 && field->loc.n_items != used) { 
-								if (field->loc.n_items < used) { 
-									fprintf(stderr, "Array is truncated from %d to %d\n",
-											used, field->loc.n_items);
-									used = allocated = field->loc.n_items;
-								} else { 
-									allocated = field->loc.n_items;
+							if (field->loc.type == fld_string && field->dbs.size == 2) { 
+								unpack_string(stmt, src_bins, used);
+							} else { 
+								int allocated = used;
+								if (field->loc.n_items != 0 && field->loc.n_items != used) { 
+									if (field->loc.n_items < used) { 
+										fprintf(stderr, "Array is truncated from %d to %d\n",
+												used, field->loc.n_items);
+										used = allocated = field->loc.n_items;
+									} else { 
+										allocated = field->loc.n_items;
+									}
 								}
+								store_int_array(stmt, src_bins, field->dbs.size, used, allocated);
 							}
-							store_int_array(stmt, src_bins, field->dbs.size, used, allocated);
 						}
 						src_bins += field->dbs.n_items*field->dbs.size;
 						size -= field->dbs.n_items*field->dbs.size;
