@@ -801,7 +801,7 @@ static void unpack_int_array(dnm_buffer& buf, std::string const& str, int elem_s
 void pack_string(dnm_buffer& buf, std::string const& val)
 {
 #ifdef _WIN32	
-	std::vector<wchar_t> wchars(str.size());
+	std::vector<wchar_t> wchars(val.size());
 	int len = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED|WC_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
 	if (len == 0) { 
 		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
