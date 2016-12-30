@@ -804,7 +804,7 @@ void pack_string(dnm_buffer& buf, std::string const& val)
 	int len = val.size();
 	std::vector<wchar_t> wchars(len);
 	if (len != 0) {
-		len = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED|WC_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+		len = MultiByteToWideChar(CP_UTF8, MB_PRECOMPOSED|MB_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
 		if (len == 0) { 
       	    fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
 		}	
@@ -1181,7 +1181,7 @@ std::string convertString(std::string const& val, char const* encoding)
 	} else { 
 		cp = CP_OEMCP;
 	}
-	int len = MultiByteToWideChar(cp, MB_PRECOMPOSED|WC_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+	int len = MultiByteToWideChar(cp, MB_PRECOMPOSED|MB_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
 	if (len == 0) { 
 		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
 		return "";
