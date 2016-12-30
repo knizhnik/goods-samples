@@ -804,7 +804,7 @@ void pack_string(dnm_buffer& buf, std::string const& val)
 	int len = val.size();
 	std::vector<wchar_t> wchars(len);
 	if (len != 0) {
-		len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+		len = MultiByteToWideChar(CP_UTF8, 0/*MB_ERR_INVALID_CHARS*/, val.data(), val.size(), &wchars[0], wchars.size()); 
 		if (len == 0) { 
       	    fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
 		}	
@@ -1181,13 +1181,13 @@ std::string convertString(std::string const& val, char const* encoding)
 	} else { 
 		cp = CP_OEMCP;
 	}
-	int len = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, val.data(), val.size(), &wchars[0], wchars.size()); 
+	int len = MultiByteToWideChar(cp, 0/*MB_ERR_INVALID_CHARS*/, val.data(), val.size(), &wchars[0], wchars.size()); 
 	if (len == 0) { 
 		fprintf(stderr, "Failed to convert string '%s' to UTF-16\n", val.c_str());
 		return "";
 	}	
 	std::vector<char> chars(len*4);
-	len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &wchars[0], len, &chars[0], len*2, NULL, NULL);
+	len = WideCharToMultiByte(CP_UTF8, 0/*WC_ERR_INVALID_CHARS*/, &wchars[0], len, &chars[0], len*2, NULL, NULL);
 	if (len == 0) { 
 		fprintf(stderr, "Failed to convert string '%s' to UTF-8\n", val.c_str());
 		return val;
@@ -1224,7 +1224,7 @@ void unpack_string(invocation& stmt, char* body, size_t len)
 #ifdef _WIN32	
 	std::vector<char> chars(len*4 + 1);
 	if (len != 0) { 
-		len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, &buf[0], len, &chars[0], len*4, NULL, NULL);
+		len = WideCharToMultiByte(CP_UTF8, 0/*WC_ERR_INVALID_CHARS*/, &buf[0], len, &chars[0], len*4, NULL, NULL);
 		assert(len != 0);
 	}
 	stmt(std::string(&chars[0], len));
