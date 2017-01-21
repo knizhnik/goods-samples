@@ -1316,7 +1316,7 @@ size_t pgsql_storage::store_struct(field_descriptor* first, invocation& stmt, ch
 			  case fld_signed_integer:
 				if (field->dbs.size == 1) {
 					if (field->dbs.n_items == 0) {
-						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? size-1 : size);
+						std::string val(src_bins, is_zero_terminated && size != 0 && src_bins[size-1] == '\0' ? strlen(src_bins) : size);
 						if (offs >= 0) {
 							if ((field->flags & fld_binary) || field->loc.type == fld_raw_binary) {
 								stmt(txn->esc_raw(val));
