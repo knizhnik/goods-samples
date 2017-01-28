@@ -2050,7 +2050,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 
 			class_descriptor* dst_desc = (desc == &hash_table::self_class)
 				? &pgsql_dictionary::self_class : is_btree(desc) ? &pgsql_index::self_class : desc;
-			desc = (desc == dst_desc && *desc->dbs_desc != *dbs_desc) ? new class_descriptor(cpid, desc, dbs_desc) : dst_desc;
+			desc = (desc == dst_desc && *desc->dbs_desc != *dbs_desc && strcmp(desc->name, "set_member") != 0) ? new class_descriptor(cpid, desc, dbs_desc) : dst_desc;
 
 			goods_classes[cpid] = dbs_desc;
 			orm_classes[cpid] = desc;
