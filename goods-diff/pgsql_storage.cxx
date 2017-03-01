@@ -1006,7 +1006,7 @@ void pgsql_storage::query(objref_t owner, char const* table, char const* where, 
 {
 	autocommit txn(this);
 	std::stringstream sql;
-	sql << "select * from set_member m,\"" << table << "\" t where m.owner=" << owner << " and t.opid=m.obj";
+	sql << "select t.* from set_member m,\"" << table << "\" t where m.owner=" << owner << " and t.opid=m.obj";
 	if (where) { 
 		sql << " and " << where;
 	}
