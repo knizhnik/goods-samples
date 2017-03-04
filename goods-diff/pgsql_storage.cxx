@@ -1967,25 +1967,25 @@ void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backe
 
 void pgsql_storage::listen(hnd_t hnd, event& e)
 {
-	string id = int2string(hnd->opid);
-	string channel = string("chan") + id + "_" + int2string((size_t)&e);
+	std::string id = int2string(hnd->opid);
+	std::string channel = std::string("chan") + id + "_" + int2string((size_t)&e);
 	if (observers.find(channel) == observers.end()) { 
 		autocommit txn(this); 
-		class_descriptor* root_class = get_root_class(hnd->obj->cls);
-		txn->exec(string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE opid=" + id + " DO NOTIFY " + channel);
+		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
+		txn->exec(std::string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE opid=" + id + " DO NOTIFY " + channel);
 		observers[channel] = new listener(txn->conn(), channel, e);
 	}
 }
 
 void pgsql_storage::unlisten(hnd_t hnd, event& e)
 {
-	string id = int2string(hnd->opid);
-	string channel = string("chan") + id + "_" + int2string((size_t)&e);
+	std::string id = int2string(hnd->opid);
+	std::string channel = std::string("chan") + id + "_" + int2string((size_t)&e);
 	auto it = observers.find(channel);
 	if (it != observers.end()) { 
 		autocommit txn(this); 
 		delete it->second;
-		txn->exec(string("DROP RULE ") + channel);
+		txn->exec(std::string("DROP RULE ") + channel);
 		observers.erase(it);
 	}
 }
