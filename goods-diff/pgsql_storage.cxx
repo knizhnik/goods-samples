@@ -1943,6 +1943,52 @@ std::string pgsql_storage::GetCurrentConnectionString()
     return connString;
 }
 
+int pgsql_storage::execute(char const* sql)
+{
+    autocommit txn(this); 
+	result rs = txn->exec(sql);
+	return rs.affected_rows();
+}
+	
+std::string int2string(long long x) { 
+	char buf[64];
+	sprintf(buf, "%llx", x);
+	return std::string(buf);
+}
+
+pgsql_storage::listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
+: notification_receiver(c, channel), notification(e) {}
+
+void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backend_pid)
+{
+	notification.signal();
+}
+
+
+void pgsql_storage::listen(hnd_t hnd, event& e)
+{
+	string id = int2string(hnd->opid);
+	string channel = string("chan") + id + "_" + int2string((size_t)&e);
+	if (observers.find(channel) == observers.end()) { 
+		autocommit txn(this); 
+		class_descriptor* root_class = get_root_class(hnd->obj->cls);
+		txn->exec(string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE opid=" + id + " DO NOTIFY " + channel);
+		observers[channel] = new listener(txn->conn(), channel, e);
+	}
+}
+
+void pgsql_storage::unlisten(hnd_t hnd, event& e)
+{
+	string id = int2string(hnd->opid);
+	string channel = string("chan") + id + "_" + int2string((size_t)&e);
+	auto it = observers.find(channel);
+	if (it != observers.end()) { 
+		autocommit txn(this); 
+		delete it->second;
+		txn->exec(string("DROP RULE ") + channel);
+		observers.erase(it);
+	}
+}
 
 #if GOODS_DATABASE_CONVERTER
 
@@ -1964,12 +2010,6 @@ inline char* unpack6(nat2& sid, opid_t& opid, char* src) {
 inline objref_t makeref(cpid_t cpid, opid_t opid) 
 {
 	return opid == ROOT_OPID ? ROOT_OPID : MAKE_OBJREF(cpid, opid);
-}
-
-std::string int2string(int x) { 
-	char buf[64];
-	sprintf(buf, "%x", x);
-	return std::string(buf);
 }
 
 static void map_classes(dbs_class_descriptor* desc)

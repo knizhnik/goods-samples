@@ -18,11 +18,7 @@
 #include <map>
 #include <string>
 
-#include <pqxx/connection>
-#include <pqxx/transaction>
-#include <pqxx/prepared_statement>
-#include <pqxx/except>
-#include <pqxx/binarystring>
+#include <pqxx/pqxx>
 
 using namespace pqxx;
 using namespace pqxx::prepare;
@@ -55,10 +51,18 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     friend class pgsql_index;
     friend class pgsql_dictionary;
 
-    // Mutable field requiring synchronization
+    class listener : public notification_receiver { 
+	event& notification;
+    public:
+	listener(connection_base &c, const PGSTD::string &channel, event& e);
+	void operator()(const PGSTD::string &payload, int backend_pid);
+    };
+
+    // Mutabe field requiring synchronization
     objref_t opid_buf[OPID_BUF_SIZE];
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
+    std::map<std::string, listener*> observers;
     int64_t lastSyncTime;
     pgsql_session* sessions;
 
@@ -217,6 +221,9 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     virtual void    close();
 
     boolean convert_goods_database(char const* databasePath, char const* databaseName);
+    int execute(char const* sql);
+    void listen(hnd_t hnd, event& e);
+    void unlisten(hnd_t hnd, event& e);
 
     nat4        GetCurrentUsersCount(char const* app_id, nat4 &nInstances);
     std::string GetCurrentConnectionString();
