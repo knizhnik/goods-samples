@@ -1972,7 +1972,7 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 	if (observers.find(channel) == observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
-		txn->exec(std::string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE opid=" + id + " DO NOTIFY " + channel);
+		txn->exec(std::string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE OLD.opid=" + id + " DO NOTIFY " + channel);
 		observers[channel] = new listener(txn->conn(), channel, e);
 	}
 }
