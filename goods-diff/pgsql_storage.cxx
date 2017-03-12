@@ -321,6 +321,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 	txn.exec("create sequence if not exists cid_sequence minvalue 2"); // 1 is RAW_CPID
 	txn.exec("create sequence if not exists client_sequence");
 		
+	txn.exec("create or replace function on_update() returns trigger as $$ begin perform pg_notify(TG_ARGV[0],current_user); return new; end; $$ language plpgsql");
 
 	if (txn.exec("select numbackends from pg_stat_database where datname=current_database()")[0][0].as(int64_t()) == 1) {
 		txn.exec("delete from version_history");
@@ -1950,9 +1951,15 @@ int pgsql_storage::execute(char const* sql)
 	return rs.affected_rows();
 }
 	
-std::string int2string(long long x) { 
+std::string int2string_hex(long long x) { 
 	char buf[64];
 	sprintf(buf, "%llx", x);
+	return std::string(buf);
+}
+
+std::string int2string_dec(long long x) { 
+	char buf[64];
+	sprintf(buf, "%lld", x);
 	return std::string(buf);
 }
 
@@ -1967,25 +1974,25 @@ void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backe
 
 void pgsql_storage::listen(hnd_t hnd, event& e)
 {
-	std::string id = int2string(hnd->opid);
-	std::string channel = std::string("chan") + id + "_" + int2string((size_t)&e);
+	std::string id = int2string_dec(hnd->opid);
+	std::string channel = std::string("chan") + id + "_" + int2string_hex((size_t)&e);
 	if (observers.find(channel) == observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
-		txn->exec(std::string("CREATE RULE ") + channel + " AS ON UPDATE TO \"" + root_class->name + "\" WHERE OLD.opid=" + id + " DO NOTIFY " + channel);
+		txn->exec(std::string("create trigger ") + channel + " after update on \"" + root_class->name + "\" for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
 		observers[channel] = new listener(txn->conn(), channel, e);
 	}
 }
 
 void pgsql_storage::unlisten(hnd_t hnd, event& e)
 {
-	std::string id = int2string(hnd->opid);
-	std::string channel = std::string("chan") + id + "_" + int2string((size_t)&e);
+	std::string id = int2string_dec(hnd->opid);
+	std::string channel = std::string("chan") + id + "_" + int2string_hex((size_t)&e);
 	auto it = observers.find(channel);
 	if (it != observers.end()) { 
 		autocommit txn(this); 
 		delete it->second;
-		txn->exec(std::string("DROP RULE ") + channel);
+		txn->exec(std::string("drop trigger ") + channel);
 		observers.erase(it);
 	}
 }
@@ -2122,7 +2129,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 				sql << ",$" << (i+2);
 			}
 			sql << ")";
-			txn->conn().prepare(std::string(desc->name) + "_convert_" + int2string(cpid), sql.str());
+			txn->conn().prepare(std::string(desc->name) + "_convert_" + int2string_hex(cpid), sql.str());
 
 			std::string desc_data((char*)dst_desc->dbs_desc, dst_desc->dbs_desc->get_size());
 			((dbs_class_descriptor*)desc_data.data())->pack();
@@ -2136,7 +2143,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		}
 		objref_t ref = makeref(cpid, opid);
 		if (strcmp(desc->name, "ExternalBlob") == 0) { 
-			std::ifstream ifs(blob_path + int2string(get_opid_hash(opid)) + std::string("\\") + int2string(opid) + ".blob", 
+			std::ifstream ifs(blob_path + int2string_hex(get_opid_hash(opid)) + std::string("\\") + int2string_hex(opid) + ".blob", 
 							  std::ifstream::binary);
 			if (ifs)
 			{				
@@ -2167,7 +2174,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 		char* src_refs = &buf;			   
 		char* src_bins = src_refs + n_refs*6;
 		char const* encoding = getenv("GOODS_ENCODING");
-		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string(cpid)) ;
+		invocation stmt = txn->prepared(std::string(desc->name) + "_convert_" + int2string_hex(cpid)) ;
 		stmt(ref);
 
 		if (desc == &pgsql_dictionary::self_class) { 
