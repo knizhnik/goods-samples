@@ -626,6 +626,7 @@ work* pgsql_storage::start_transaction(bool& toplevel)
 	}
 	pgsql_session* session = extension->session;
 	if (session->txn == NULL) { 				
+		session->con->get_notifs();
 		session->txn = new work(*session->con);
 		std::vector<objref_t> deteriorated;
 		int64_t sync = session->txn->prepared("lastsync").exec()[0][0].as(int64_t());
