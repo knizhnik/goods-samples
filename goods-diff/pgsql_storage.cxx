@@ -382,7 +382,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 						oldColumns[rs[i][0].as(std::string())] = rs[i][1].as(std::string());
 					}
 				
-					sql << "alter table \"" << class_name  << "\"";
+					sql << "alter table " << class_name;
 					for (auto newColumn = columns.begin(); newColumn != columns.end(); newColumn++) {
 						auto oldColumn = oldColumns.find(newColumn->first);
 						auto fd = newColumn->second;
@@ -405,7 +405,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 					}
 				} else { 
 					// no such table
-					sql << "create table \"" << class_name << "\"(opid objref primary key";
+					sql << "create table " << class_name << "(opid objref primary key";
 					for (auto column = columns.begin(); column != columns.end(); column++) {
 						sql << ",\"" << column->first << "\" " << map_type(column->second);
 					}
@@ -415,7 +415,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 				}
 				for (auto column = columns.begin(); column != columns.end(); column++) {
 					if (column->second->flags & fld_indexed) { 
-						txn.exec(std::string("create index if not exists \"") +  class_name + "." + column->first + "\" on \"" + class_name + "\"(\"" +  column->first + "\")");
+						txn.exec(std::string("create index if not exists \"") +  class_name + "." + column->first + "\" on " + class_name + "(\"" +  column->first + "\")");
 					}
 				}
 			}
@@ -584,7 +584,7 @@ connection* pgsql_storage::open_connection()
 			get_columns("", cls->fields, columns, get_inheritance_depth(cls));
 			{
 				std::stringstream sql;			
-				sql << "insert into \"" << table_name << "\" (opid";
+				sql << "insert into " << table_name << " (opid";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					sql << ",\"" << columns[i] << '\"';
 				}
@@ -597,7 +597,7 @@ connection* pgsql_storage::open_connection()
 			}
 			if (columns.size() != 0) {
 				std::stringstream sql;			
-				sql << "update \"" << table_name << "\" set ";
+				sql << "update " << table_name << " set ";
 				for (size_t i = 0; i < columns.size(); i++) { 
 					if (i != 0) sql << ',';
 					sql << '\"' << columns[i] << "\"=$" << (i+2);
@@ -606,10 +606,10 @@ connection* pgsql_storage::open_connection()
 				con->prepare(class_name + "_update", sql.str());
 			}
 			if (table_name == class_name) {
-				con->prepare(table_name + "_delete", std::string("delete from \"") + table_name + "\" where opid=$1");
-				con->prepare(table_name + "_loadobj", std::string("select * from \"") + table_name + "\" where opid=$1");
-				con->prepare(table_name + "_loadobj_for_update", std::string("select * from \"") + table_name + "\" where opid=$1 for update");
-				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"") + table_name + "\" t where m.opid=s.opid and t.opid=s.obj limit $2");
+				con->prepare(table_name + "_delete", std::string("delete from ") + table_name + " where opid=$1");
+				con->prepare(table_name + "_loadobj", std::string("select * from ") + table_name + " where opid=$1");
+				con->prepare(table_name + "_loadobj_for_update", std::string("select * from ") + table_name + " where opid=$1 for update");
+				con->prepare(table_name + "_loadset", std::string("with recursive set_members(opid,obj) as (select m.opid,m.obj from set_member m where m.prev=$1 union all select m.opid,m.obj from set_member m join set_members s ON m.prev=s.opid) select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, ") + table_name + " t where m.opid=s.opid and t.opid=s.obj limit $2");
 
 			}
 		}	
@@ -1008,7 +1008,7 @@ void pgsql_storage::query(objref_t owner, char const* table, char const* where, 
 {
 	autocommit txn(this);
 	std::stringstream sql;
-	sql << "select t.* from set_member m,\"" << table << "\" t where m.owner=" << owner << " and t.opid=m.obj";
+	sql << "select t.* from set_member m," << table << " t where m.owner=" << owner << " and t.opid=m.obj";
 	if (where) { 
 		sql << " and " << where;
 	}
@@ -1048,7 +1048,7 @@ void pgsql_storage::query(objref_t& first_mbr, objref_t last_mbr, char const* qu
 	if (last_mbr != 0) { 
 		sql << " where " << follow << " <> " << last_mbr;
 	}
-	sql << ") select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, \"" << table_name << "\" t where m.opid=s.opid and t.opid=s.obj";
+	sql << ") select m.opid as mbr_opid,m.next as mbr_next,m.prev as mbr_prev,m.owner as mbr_owner,m.obj as mbr_obj,m.key as mbr_key,t.* from set_members s, set_member m, " << table_name << " t where m.opid=s.opid and t.opid=s.obj";
 	if (query && *query) { 
 		sql << " and " << query;
 	}
@@ -1980,7 +1980,7 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 	if (observers.find(channel) == observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
-		txn->exec(std::string("create trigger ") + channel + " after update on \"" + root_class->name + "\" for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
+		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
 		observers[channel] = new listener(txn->conn(), channel, e);
 	}
 }
@@ -2121,7 +2121,7 @@ boolean pgsql_storage::convert_goods_database(char const* databasePath, char con
 			}
 			get_columns("", desc->fields, columns, get_inheritance_depth(desc));
 			std::stringstream sql;			
-			sql << "insert into \"" << table_name << "\" (opid";
+			sql << "insert into " << table_name << " (opid";
 			for (size_t i = 0; i < columns.size(); i++) { 
 				sql << ",\"" << columns[i] << '\"';
 			}
