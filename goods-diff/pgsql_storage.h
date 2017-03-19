@@ -77,15 +77,16 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     work* start_transaction(bool& toplevel);
     void commit_transaction();
     connection* open_connection();
-    pgsql_session* get_session();
+    pgsql_session* new_session();
+    pgsql_session* current_session();
     void release_session(pgsql_session* session);
-
+    
     class pgsql_extension : public transaction_manager_extension {
     public:
 	pgsql_storage* const storage;
 	pgsql_session* const session;
 	
-	pgsql_extension(pgsql_storage* _storage) : storage(_storage), session(_storage->get_session()) {}
+	pgsql_extension(pgsql_storage* _storage) : storage(_storage), session(_storage->new_session()) {}
 	
 	~pgsql_extension() { 
 	    storage->release_session(session);
@@ -222,6 +223,10 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
     boolean convert_goods_database(char const* databasePath, char const* databaseName);
     int execute(char const* sql);
+
+    int get_socket();
+    void process_notifications();
+
     void listen(hnd_t hnd, event& e);
     void unlisten(hnd_t hnd, event& e);
 

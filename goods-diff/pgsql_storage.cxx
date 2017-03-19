@@ -438,7 +438,7 @@ void pgsql_storage::close()
 }
 
 
-pgsql_session* pgsql_storage::get_session() 
+pgsql_session* pgsql_storage::new_session() 
 {
 	critical_section on(cs);
 	pgsql_session* session = sessions;
@@ -617,14 +617,19 @@ connection* pgsql_storage::open_connection()
 	return con;
 }	
 
-work* pgsql_storage::start_transaction(bool& toplevel)
+pgsql_session* pgsql_storage::current_session()
 {
     transaction_manager* mng = transaction_manager::get();
 	pgsql_extension* extension = (pgsql_extension*)mng->extension;
 	if (extension == NULL) { 
 		mng->extension = extension = new pgsql_extension(this);
 	}
-	pgsql_session* session = extension->session;
+	return extension->session;
+}
+
+work* pgsql_storage::start_transaction(bool& toplevel)
+{
+	pgsql_session* session = current_session();
 	if (session->txn == NULL) { 				
 		session->con->get_notifs();
 		session->txn = new work(*session->con);
@@ -1962,6 +1967,18 @@ std::string int2string_dec(long long x) {
 	char buf[64];
 	sprintf(buf, "%lld", x);
 	return std::string(buf);
+}
+
+int pgsql_storage::get_socket()
+{
+	pgsql_session* session = current_session();
+	return session->con->sock();
+}
+
+void pgsql_storage::process_notifications()
+{
+	pgsql_session* session = current_session();
+	session->con->get_notifs();
 }
 
 pgsql_storage::listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
