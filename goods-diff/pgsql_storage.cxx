@@ -327,7 +327,7 @@ boolean pgsql_storage::open(char const* connection_address, const char* login, c
 		txn.exec("delete from version_history");
 	}
 
-	con->prepare("get_attrs", "select attname,typname from pg_class,pg_attribute,pg_type where pg_class.relname=$1 and pg_class.oid=pg_attribute.attrelid and pg_attribute.atttypid=pg_type.oid and attnum>0 order by attnum");
+	con->prepare("get_attrs", "select attname,typname from pg_class,pg_attribute,pg_type where pg_class.relname=lower($1) and pg_class.oid=pg_attribute.attrelid and pg_attribute.atttypid=pg_type.oid and attnum>0 order by attnum");
 
 
 
