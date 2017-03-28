@@ -52,8 +52,9 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     friend class pgsql_dictionary;
 
     class listener : public notification_receiver { 
-	event* notification;
     public:
+	event* notification;
+
 	listener(connection_base &c, const PGSTD::string &channel, event& e);
 	void operator()(const PGSTD::string &payload, int backend_pid);
     };
