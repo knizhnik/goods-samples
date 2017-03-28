@@ -1998,6 +1998,7 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 	if (it == observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
+		txn->exec(std::string("drop trigger if exists ") + channel + " on " + root_class->name);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
 		observers[channel] = new listener(txn->conn(), channel, e);
 	} else { 
