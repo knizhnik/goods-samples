@@ -1982,30 +1982,33 @@ void pgsql_storage::process_notifications()
 }
 
 pgsql_storage::listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
-: notification_receiver(c, channel), notification(e) {}
+: notification_receiver(c, channel), notification(&e) {}
 
 void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backend_pid)
 {
-	notification.signal();
+	notification->signal();
 }
 
 
 void pgsql_storage::listen(hnd_t hnd, event& e)
 {
 	std::string id = int2string_dec(hnd->opid);
-	std::string channel = std::string("chan") + id + "_" + int2string_hex((size_t)&e);
-	if (observers.find(channel) == observers.end()) { 
+	std::string channel = std::string("chan") + id;
+	auto it = observers.find(channel);
+	if (it == observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
 		observers[channel] = new listener(txn->conn(), channel, e);
+	} else { 
+		it->second->notification = &e;
 	}
 }
 
 void pgsql_storage::unlisten(hnd_t hnd, event& e)
 {
 	std::string id = int2string_dec(hnd->opid);
-	std::string channel = std::string("chan") + id + "_" + int2string_hex((size_t)&e);
+	std::string channel = std::string("chan") + id;
 	auto it = observers.find(channel);
 	if (it != observers.end()) { 
 		autocommit txn(this); 
