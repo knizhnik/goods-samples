@@ -631,7 +631,6 @@ work* pgsql_storage::start_transaction(bool& toplevel)
 {
 	pgsql_session* session = current_session();
 	if (session->txn == NULL) { 				
-		session->con->get_notifs();
 		session->txn = new work(*session->con);
 		std::vector<objref_t> deteriorated;
 		int64_t sync = session->txn->prepared("lastsync").exec()[0][0].as(int64_t());
@@ -1982,11 +1981,11 @@ void pgsql_storage::process_notifications()
 }
 
 pgsql_storage::listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
-: notification_receiver(c, channel), notification(&e) {}
+: notification_receiver(c, channel), notification(e) {}
 
 void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backend_pid)
 {
-	notification->signal();
+	notification.signal();
 }
 
 
@@ -1994,29 +1993,24 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 {
 	std::string id = int2string_dec(hnd->opid);
 	std::string channel = std::string("chan") + id;
-	auto it = observers.find(channel);
-	if (it == observers.end()) { 
+	connection_base* con;
+	{
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
 		txn->exec(std::string("drop trigger if exists ") + channel + " on " + root_class->name);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
-		observers[channel] = new listener(txn->conn(), channel, e);
-	} else { 
-		it->second->notification = &e;
+		con = &txn->conn();
+	}
+	{
+		listener of(*con, channel, e);
+		while (!e.wait_with_timeout(1)) {
+			con->get_notifs();
+		}
 	}
 }
 
 void pgsql_storage::unlisten(hnd_t hnd, event& e)
 {
-	std::string id = int2string_dec(hnd->opid);
-	std::string channel = std::string("chan") + id;
-	auto it = observers.find(channel);
-	if (it != observers.end()) { 
-		autocommit txn(this); 
-		delete it->second;
-		txn->exec(std::string("drop trigger ") + channel);
-		observers.erase(it);
-	}
 }
 
 #if GOODS_DATABASE_CONVERTER

@@ -63,7 +63,6 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
     objref_t opid_buf[OPID_BUF_SIZE];
     size_t   opid_buf_pos;
     std::vector<class_descriptor*> descriptor_table;
-    std::map<std::string, listener*> observers;
     int64_t lastSyncTime;
     pgsql_session* sessions;
 
