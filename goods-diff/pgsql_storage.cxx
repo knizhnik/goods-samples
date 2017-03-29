@@ -1980,10 +1980,10 @@ void pgsql_storage::process_notifications()
 	session->con->get_notifs();
 }
 
-pgsql_storage::listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
+listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
 : notification_receiver(c, channel), notification(e) {}
 
-void pgsql_storage::listener::operator()(const PGSTD::string &payload, int backend_pid)
+void listener::operator()(const PGSTD::string &payload, int backend_pid)
 {
 	notification.signal();
 }
@@ -1993,24 +1993,37 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 {
 	std::string id = int2string_dec(hnd->opid);
 	std::string channel = std::string("chan") + id;
-	connection_base* con;
-	{
+	pgsql_session* session = current_session();
+	auto it = session->observers.find(channel);
+	if (it != session->observers.end()) { 
 		autocommit txn(this); 
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
 		txn->exec(std::string("drop trigger if exists ") + channel + " on " + root_class->name);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
-		con = &txn->conn();
+		session->observers[channel] = new listener(txn->conn(), channel, e);
 	}
-	{
-		listener of(*con, channel, e);
-		while (!e.wait_with_timeout(1)) {
-			con->get_notifs();
-		}
+}
+
+void pgsql_storage::wait_notification(event& e)
+{
+	pgsql_session* session = current_session();	
+	while (!e.wait_with_timeout(1)) {
+		session->con->get_notifs();
 	}
 }
 
 void pgsql_storage::unlisten(hnd_t hnd, event& e)
 {
+	std::string id = int2string_dec(hnd->opid);
+	std::string channel = std::string("chan") + id;
+	pgsql_session* session = current_session();	
+	auto it = session->observers.find(channel);
+	if (it != session->observers.end()) { 
+		autocommit txn(this); 
+		delete it->second;
+		txn->exec(std::string("drop trigger ") + channel);
+		session->observers.erase(it);
+	}
 }
 
 #if GOODS_DATABASE_CONVERTER

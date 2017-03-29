@@ -30,11 +30,21 @@ const size_t OPID_BUF_SIZE = 64;
 class pgsql_index;
 class pgsql_dictionary;
 
+class listener : public notification_receiver { 
+    event& notification;
+  public:
+    
+    listener(connection_base &c, const PGSTD::string &channel, event& e);
+    void operator()(const PGSTD::string &payload, int backend_pid);
+};
+
+
 struct pgsql_session 
 { 
     work* txn;
     connection* con;
     pgsql_session* next;
+    std::map<std::string, listener*> observers;
 
     pgsql_session(connection* _con) : txn(NULL), con(_con) {}
 
@@ -50,14 +60,6 @@ struct pgsql_session
 class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage { 
     friend class pgsql_index;
     friend class pgsql_dictionary;
-
-    class listener : public notification_receiver { 
-    public:
-	event& notification;
-
-	listener(connection_base &c, const PGSTD::string &channel, event& e);
-	void operator()(const PGSTD::string &payload, int backend_pid);
-    };
 
     // Mutabe field requiring synchronization
     objref_t opid_buf[OPID_BUF_SIZE];
@@ -226,6 +228,7 @@ class GOODS_DLL_EXPORT pgsql_storage : public dbs_storage {
 
     int get_socket();
     void process_notifications();
+    void wait_notification(event& e);
 
     void listen(hnd_t hnd, event& e);
     void unlisten(hnd_t hnd, event& e);
