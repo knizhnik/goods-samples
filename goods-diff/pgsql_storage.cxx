@@ -1981,11 +1981,11 @@ void pgsql_storage::process_notifications()
 }
 
 listener::listener(connection_base &c, const PGSTD::string &channel, event& e) 
-: notification_receiver(c, channel), notification(e) {}
+: notification_receiver(c, channel), notification(&e) {}
 
 void listener::operator()(const PGSTD::string &payload, int backend_pid)
 {
-	notification.signal();
+	notification->signal();
 }
 
 
@@ -1995,12 +1995,15 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 	std::string channel = std::string("chan") + id;
 	pgsql_session* session = current_session();
 	auto it = session->observers.find(channel);
-	if (it != session->observers.end()) { 
+	if (it == session->observers.end()) { 
 		autocommit txn(this); 
+		transaction_manager::get()->has_something_to_commit = true; // prevent rollback of this trnasaction
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
 		txn->exec(std::string("drop trigger if exists ") + channel + " on " + root_class->name);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
 		session->observers[channel] = new listener(txn->conn(), channel, e);
+	} else { 
+		it->second->notification = &e;
 	}
 }
 
@@ -2020,6 +2023,7 @@ void pgsql_storage::unlisten(hnd_t hnd, event& e)
 	auto it = session->observers.find(channel);
 	if (it != session->observers.end()) { 
 		autocommit txn(this); 
+		transaction_manager::get()->has_something_to_commit = true; // prevent rollback of this trnasaction
 		delete it->second;
 		txn->exec(std::string("drop trigger ") + channel);
 		session->observers.erase(it);
