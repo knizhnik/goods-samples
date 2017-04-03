@@ -1997,7 +1997,7 @@ void pgsql_storage::listen(hnd_t hnd, event& e)
 	auto it = session->observers.find(channel);
 	if (it == session->observers.end()) { 
 		autocommit txn(this); 
-		transaction_manager::get()->has_something_to_commit = true; // prevent rollback of this trnasaction
+		transaction_manager::get()->force_commit = true; // prevent rollback of this trnasaction
 		class_descriptor* root_class = get_root_class(&hnd->obj->cls);
 		txn->exec(std::string("drop trigger if exists ") + channel + " on " + root_class->name);
 		txn->exec(std::string("create trigger ") + channel + " after update on " + root_class->name + " for each row when (NEW.opid=" + id + ") execute procedure on_update('" + channel + "')");
@@ -2023,7 +2023,7 @@ void pgsql_storage::unlisten(hnd_t hnd, event& e)
 	auto it = session->observers.find(channel);
 	if (it != session->observers.end()) { 
 		autocommit txn(this); 
-		transaction_manager::get()->has_something_to_commit = true; // prevent rollback of this trnasaction
+		transaction_manager::get()->force_commit = true; // prevent rollback of this trnasaction
 		delete it->second;
 		txn->exec(std::string("drop trigger ") + channel);
 		session->observers.erase(it);
